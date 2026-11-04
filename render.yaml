@@ -16,6 +16,8 @@ services:
     startCommand: node src/index.js
     healthCheckPath: /api/config
     envVars:
+      - key: NODE_VERSION
+        value: 20
       - key: NODE_ENV
         value: production
       - key: OTP_MODE
