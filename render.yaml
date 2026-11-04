@@ -1,5 +1,11 @@
 # Render Blueprint — one-click deploy of Naija Wave (API + frontend + realtime).
 # In Render: New > Blueprint > connect your repo. Then set the env vars below.
+#
+# NOTE (free plan):
+# - PORT is injected by Render automatically — do NOT set it here.
+# - Persistent disks are not available on the free plan, so the database and
+#   uploads live inside the container: they survive sleeps/restarts, but reset
+#   on redeploy. Add a disk (or move to Postgres) when you upgrade to Starter.
 services:
   - type: web
     name: naijawave
@@ -7,13 +13,7 @@ services:
     dockerfilePath: ./Dockerfile
     plan: free
     healthCheckPath: /api/config
-    disk:
-      name: naijawave-data
-      mountPath: /app/data
-      sizeGB: 1
     envVars:
-      - key: PORT
-        value: 3000
       - key: NODE_ENV
         value: production
       - key: OTP_MODE

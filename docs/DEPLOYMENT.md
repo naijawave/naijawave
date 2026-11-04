@@ -22,7 +22,10 @@ Deploying it once gives you a public link like `https://naijawave.onrender.com`.
 
 **Free-tier notes:** Render's free plan sleeps after ~15 min of no traffic — the
 first visit after sleep takes ~30–60s to wake. That's fine for testing/launch; the
-$7/month Starter plan removes sleeping.
+$7/month Starter plan removes sleeping. Note: the free plan has no persistent
+disk, so the database and uploads live inside the container — they survive sleep
+and restarts, but reset when you redeploy or change settings. Add a disk (Starter
+plan) or move to Postgres before you have real users you can't afford to lose.
 
 ## Option B — Fly.io (also free-ish, better for realtime)
 
