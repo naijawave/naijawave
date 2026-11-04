@@ -65,7 +65,7 @@ export function battleCard(b){
     s.disabled=true;
     try{
       const d=await api.post(`/api/versus/${b.id}/vote`,{side});
-      b.side_a.votes=d.side_a_votes; b.side_b.votes=d.side_b_votes; b.total_votes=d.total_votes; b.my_side=side;
+      b.side_a.votes=d.battle.side_a.votes; b.side_b.votes=d.battle.side_b.votes; b.total_votes=d.battle.total_votes; b.my_side=side;
       const fresh=battleCard(b); el.replaceWith(fresh); toast('Vote counted! ⚔️','ok');
     }catch(err){ toast(err.message,'err'); s.disabled=false; }
   });

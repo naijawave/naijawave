@@ -4,7 +4,7 @@ const db = require('../db');
 const { authRequired, authOptional } = require('../middleware/auth');
 const { followLimiter } = require('../middleware/rateLimit');
 const { publicUser, escLike } = require('../utils/helpers');
-const { serializePost } = require('../utils/serialize');
+const { serializePost, visibilityWhere } = require('../utils/serialize');
 const { notify } = require('../utils/notify');
 const realtime = require('../realtime');
 
@@ -83,6 +83,34 @@ router.get('/me/bookmarks', authRequired, (req, res) => {
     WHERE b.user_id = ? AND p.deleted_at IS NULL ORDER BY b.id DESC LIMIT ? OFFSET ?`)
     .all(req.user.id, limit, (page - 1) * limit);
   res.json({ items: rows.map(r => serializePost(db, r, req.user.id)), page, has_more: rows.length === limit });
+});
+
+// GET /api/users/:username/posts?type=posts|replies|media|likes
+router.get('/:username/posts', authOptional, (req, res) => {
+  const u = db.prepare('SELECT * FROM users WHERE username = ?').get(String(req.params.username).toLowerCase());
+  if (!u || u.status === 'suspended') return res.status(404).json({ error: 'User not found.' });
+  const type = ['posts', 'replies', 'media', 'likes'].includes(req.query.type) ? req.query.type : 'posts';
+  const viewerId = req.user?.id || null;
+  const page = Math.max(1, parseInt(req.query.page) || 1), limit = Math.min(40, parseInt(req.query.limit) || 20);
+  const v = visibilityWhere(viewerId);
+  let sql, params;
+  const base = `FROM posts p WHERE p.deleted_at IS NULL AND ${v.where}`;
+  if (type === 'posts') {
+    sql = `SELECT p.* ${base} AND p.user_id = ? ORDER BY p.id DESC`; params = [...v.params, u.id];
+  } else if (type === 'media') {
+    sql = `SELECT p.* ${base} AND p.user_id = ? AND EXISTS (SELECT 1 FROM media m WHERE m.post_id = p.id) ORDER BY p.id DESC`;
+    params = [...v.params, u.id];
+  } else if (type === 'likes') {
+    sql = `SELECT p.* FROM posts p JOIN post_likes l ON l.post_id = p.id AND l.user_id = ? WHERE p.deleted_at IS NULL AND ${v.where} ORDER BY l.id DESC`;
+    params = [u.id, ...v.params];
+  } else { // replies: posts this user has commented on, most recent reply first
+    sql = `SELECT p.*, MAX(c.id) AS rc FROM posts p
+           JOIN comments c ON c.post_id = p.id AND c.user_id = ? AND c.deleted_at IS NULL
+           WHERE p.deleted_at IS NULL AND ${v.where} GROUP BY p.id ORDER BY rc DESC`;
+    params = [u.id, ...v.params];
+  }
+  const rows = db.prepare(sql + ' LIMIT ? OFFSET ?').all(...params, limit, (page - 1) * limit);
+  res.json({ items: rows.map(r => serializePost(db, r, viewerId)), page, has_more: rows.length === limit });
 });
 
 // GET /api/users/:username

@@ -74,7 +74,7 @@ function paintVotes(el,c){
     b.disabled=true;
     try{
       const d=await api.post(`/api/court/${c.id}/vote`,{option_id:+b.dataset.vopt});
-      c.options=d.options; c.total_votes=d.total_votes; c.my_vote=+b.dataset.vopt;
+      c.options=d.case.options; c.total_votes=d.case.total_votes; c.my_vote=+b.dataset.vopt;
       paintVotes(el,c); toast('Verdict recorded ⚖️','ok');
     }catch(err){ toast(err.message,'err'); b.disabled=false; }
   });

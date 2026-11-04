@@ -67,3 +67,25 @@ facingMode, speaker via setSinkId, duration, end), call logging.
   for backend confirmation.
 - Missed-call history view not built (no dedicated route requested); logs go
   via `POST /api/calls/log`.
+
+## Post-handoff integration fixes (by backend owner, verified by E2E)
+
+- `js/calls.js`: all call signalling emissions now include `to_user_id`
+  (call:ice/accept/reject/missed/end) — without it the server relay dropped
+  them and calls could never connect. Server also tracks call participants as
+  a fallback and fixed the missed-call notification (correct caller name + kind).
+- `js/views/court.js`: vote handler now reads `d.case.options` / `d.case.total_votes`
+  (API returns `{case}`), previously broke the vote UI.
+- `js/views/versus.js`: vote handler now reads `d.battle.side_a.votes` etc.
+  (API returns `{battle}`).
+- `js/views/messages.js`: added a **Calls tab** with real call history
+  (`GET /api/calls/history`) + call-back buttons.
+- Backend: added `GET /api/users/:username/posts?type=posts|replies|media|likes`
+  (profile tabs) and `GET /api/users/me/blocked|muted` (settings lists).
+
+E2E (headless Chromium, real UI): 17/17 pass — register + OTP, posting, likes,
+Pulse trending from real activity, Court create + vote, Versus, Buzz, messages,
+notifications, settings, verification centre, profile tabs, admin 403-guard.
+Zero JS errors. Remaining console notes: Google Fonts blocked only inside the
+test sandbox (loads on the real internet, system fallback otherwise); the admin
+403 probe is by design.
