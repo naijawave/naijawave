@@ -2,16 +2,18 @@
 # In Render: New > Blueprint > connect your repo. Then set the env vars below.
 #
 # NOTE (free plan):
+# - Uses Render's native Node runtime (no Docker): simpler + faster builds.
 # - PORT is injected by Render automatically — do NOT set it here.
-# - Persistent disks are not available on the free plan, so the database and
-#   uploads live inside the container: they survive sleeps/restarts, but reset
-#   on redeploy. Add a disk (or move to Postgres) when you upgrade to Starter.
+# - No persistent disk on the free plan: the database and uploads live on the
+#   instance filesystem. They survive sleep/restarts, but reset on redeploy.
+#   Add a disk (Starter plan) or move to Postgres before real users arrive.
 services:
   - type: web
     name: naijawave
-    runtime: docker
-    dockerfilePath: ./Dockerfile
+    runtime: node
     plan: free
+    buildCommand: npm install
+    startCommand: node src/index.js
     healthCheckPath: /api/config
     envVars:
       - key: NODE_ENV
