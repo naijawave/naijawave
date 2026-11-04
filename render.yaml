@@ -1,0 +1,28 @@
+# Render Blueprint — one-click deploy of Naija Wave (API + frontend + realtime).
+# In Render: New > Blueprint > connect your repo. Then set the env vars below.
+services:
+  - type: web
+    name: naijawave
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    healthCheckPath: /api/config
+    disk:
+      name: naijawave-data
+      mountPath: /app/data
+      sizeGB: 1
+    envVars:
+      - key: PORT
+        value: 3000
+      - key: NODE_ENV
+        value: production
+      - key: OTP_MODE
+        value: dev
+      - key: DB_PATH
+        value: /app/data/naijawave.db
+      - key: UPLOAD_DIR
+        value: /app/data/uploads
+      - key: SETUP_KEY
+        generateValue: true
+      - key: JWT_SECRET
+        generateValue: true
