@@ -6,7 +6,7 @@ let iceServers=[{urls:'stun:stun.l.google.com:19302'}];
 let cur=null; // active call session
 
 async function getIce(){
-  try{ const d=await api.get('/api/config'); if(d.ice_servers?.length) iceServers=d.ice_servers; }
+  try{ const d=await api.get('/api/config?_='+Date.now()); if(d.ice_servers?.length) iceServers=d.ice_servers; }
   catch{}
 }
 const uuid=()=> (crypto.randomUUID?crypto.randomUUID():'c'+Date.now()+Math.random().toString(16).slice(2));
@@ -39,13 +39,15 @@ export async function startCall(other, kind='voice'){
 
   const call_id=uuid();
   const pc=new RTCPeerConnection({iceServers});
+  // Attach handlers BEFORE createOffer/setLocalDescription — ICE gathering
+  // starts there, and candidates gathered before the handler is set are lost.
+  pc.onicecandidate=e=>{ if(e.candidate) sock.emit('call:ice',{call_id,to_user_id:other.id,candidate:e.candidate}); };
+  pc.ontrack=e=>{ const v=document.getElementById('cvRemote')||document.getElementById('cvRemoteAudio'); if(v){ v.srcObject=e.streams[0]; v.play?.().catch(()=>{}); } };
+  pc.onconnectionstatechange=()=>{ if(pc.connectionState==='failed') callFail('Connection failed — check your network.'); };
   stream.getTracks().forEach(t=>pc.addTrack(t,stream));
   const offer=await pc.createOffer(); await pc.setLocalDescription(offer);
 
   cur={call_id,other,kind,pc,stream,role:'caller',accepted:false,startT:null,timer:null,iceQ:[]};
-  pc.onicecandidate=e=>{ if(e.candidate) sock.emit('call:ice',{call_id,to_user_id:other.id,candidate:e.candidate}); };
-  pc.ontrack=e=>{ const v=document.getElementById('cvRemote')||document.getElementById('cvRemoteAudio'); if(v){ v.srcObject=e.streams[0]; v.play?.().catch(()=>{}); } };
-  pc.onconnectionstatechange=()=>{ if(pc.connectionState==='failed') callFail('Connection failed — check your network.'); };
 
   showCallingUI(other,kind,false);
   const acked=await new Promise(res=>{
@@ -129,13 +131,15 @@ async function acceptCall(ov){
   try{ const m=await getCallMedia(cur.kind); stream=m.stream; cur.kind=m.kind; }
   catch(e){ toast('Could not access microphone/camera ('+(e.name||'blocked')+').','err'); sock.emit('call:reject',{call_id:cur.call_id,to_user_id:cur.other.id,reason:'media'}); ov.remove(); cur=null; return; }
   const pc=new RTCPeerConnection({iceServers});
+  // Attach handlers BEFORE setRemoteDescription — the remote track / ICE can
+  // arrive as soon as the descriptions are set.
+  pc.onicecandidate=e=>{ if(e.candidate) sock.emit('call:ice',{call_id:cur.call_id,to_user_id:cur.other.id,candidate:e.candidate}); };
+  pc.ontrack=e=>{ const v=document.getElementById('cvRemote')||document.getElementById('cvRemoteAudio'); if(v){ v.srcObject=e.streams[0]; v.play?.().catch(()=>{}); } };
+  pc.onconnectionstatechange=()=>{ if(pc.connectionState==='failed') callFail('Connection failed — check your network.'); };
   stream.getTracks().forEach(t=>pc.addTrack(t,stream));
   await pc.setRemoteDescription(new RTCSessionDescription(cur.offer));
   const answer=await pc.createAnswer(); await pc.setLocalDescription(answer);
   Object.assign(cur,{pc,stream,accepted:true,startT:Date.now()});
-  pc.onicecandidate=e=>{ if(e.candidate) sock.emit('call:ice',{call_id:cur.call_id,to_user_id:cur.other.id,candidate:e.candidate}); };
-  pc.ontrack=e=>{ const v=document.getElementById('cvRemote')||document.getElementById('cvRemoteAudio'); if(v){ v.srcObject=e.streams[0]; v.play?.().catch(()=>{}); } };
-  pc.onconnectionstatechange=()=>{ if(pc.connectionState==='failed') callFail('Connection failed — check your network.'); };
   // flush queued ICE
   (cur.iceQ||[]).forEach(c=>pc.addIceCandidate(new RTCIceCandidate(c)).catch(()=>{})); cur.iceQ=[];
   sock.emit('call:accept',{call_id:cur.call_id,to_user_id:cur.other.id,sdp_answer:pc.localDescription});

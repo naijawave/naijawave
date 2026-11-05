@@ -25,6 +25,8 @@ app.use('/api', generalApi);
 
 // ---- public config (no secrets): ICE servers for WebRTC ----
 app.get('/api/config', (req, res) => {
+  // Never cache: phones must always get the current relay (TURN) list.
+  res.set('Cache-Control', 'no-store');
   const ice = [{ urls: process.env.STUN_URL || 'stun:stun.l.google.com:19302' }];
   if (process.env.TURN_URL) {
     // TURN_URL may be a comma-separated list — the browser tries each and
