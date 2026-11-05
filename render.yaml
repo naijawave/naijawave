@@ -25,13 +25,16 @@ services:
         generateValue: true
       - key: JWT_SECRET
         generateValue: true
-      # TURN relay (free public OpenRelay demo server) — lets calls connect
-      # when the two phones can't reach each other directly (strict NAT /
-      # Wi-Fi isolation). No signup. Later, swap for a private free Metered
-      # account (50 GB/mo) by changing these three values.
+      # TURN relay — private Metered account (naijawave.metered.live).
+      # Replaces the public OpenRelay demo, which did not work on the user's
+      # network. Free trial 500 MB + $30 credit. If these credentials ever
+      # leak/rotate, update them here (or move them to the Render dashboard
+      # Environment page and remove them from this file).
+      - key: STUN_URL
+        value: stun:stun.relay.metered.ca:80
       - key: TURN_URL
-        value: turn:openrelay.metered.ca:80,turn:openrelay.metered.ca:443,turns:openrelay.metered.ca:443
+        value: "turn:global.relay.metered.ca:80,turn:global.relay.metered.ca:80?transport=tcp,turn:global.relay.metered.ca:443,turns:global.relay.metered.ca:443?transport=tcp"
       - key: TURN_USER
-        value: openrelayproject
+        value: "4397a942ff25720be005110e"
       - key: TURN_PASS
-        value: openrelayproject
+        value: "UG62a/Axj01BIqan"
