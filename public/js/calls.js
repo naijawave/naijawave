@@ -27,18 +27,24 @@ export async function startCall(other, kind='voice'){
 
   cur={call_id,other,kind,pc,stream,role:'caller',accepted:false,startT:null,timer:null,iceQ:[]};
   pc.onicecandidate=e=>{ if(e.candidate) sock.emit('call:ice',{call_id,to_user_id:other.id,candidate:e.candidate}); };
-  pc.ontrack=e=>{ const v=document.getElementById('cvRemote'); if(v) v.srcObject=e.streams[0]; };
+  pc.ontrack=e=>{ const v=document.getElementById('cvRemote')||document.getElementById('cvRemoteAudio'); if(v){ v.srcObject=e.streams[0]; v.play?.().catch(()=>{}); } };
   pc.onconnectionstatechange=()=>{ if(pc.connectionState==='failed') callFail('Connection failed — check your network.'); };
 
   showCallingUI(other,kind,false);
   const acked=await new Promise(res=>{
     const ok=sock.emit('call:invite',{to_user_id:other.id,kind,sdp_offer:pc.localDescription,call_id},ack=>res(ack));
-    if(!ok) res({error:'OFFLINE'});
+    if(!ok) res({error:'SELF_OFFLINE'});
     setTimeout(()=>res({error:'TIMEOUT'}),15000);
   });
   if(!acked||acked.error){
     endCall(true);
-    toast(acked?.error==='OFFLINE'?'You are offline — call could not be placed.':'Could not reach user. They may be offline.','err');
+    // OFFLINE from the server means the *other* person has no open socket
+    // (the server already logs a missed call + notifies them). SELF_OFFLINE
+    // means our own socket never connected — only then is it our connection.
+    const name=other.display_name||other.username||'They';
+    toast(acked?.error==='OFFLINE'?`${name} isn't in the app right now — they'll see a missed call.`
+      :acked?.error==='SELF_OFFLINE'?'You are offline — check your connection and try again.'
+      :'Could not reach user. They may be offline.','err');
     return;
   }
   // 30s no-answer
@@ -111,7 +117,7 @@ async function acceptCall(ov){
   const answer=await pc.createAnswer(); await pc.setLocalDescription(answer);
   Object.assign(cur,{pc,stream,accepted:true,startT:Date.now()});
   pc.onicecandidate=e=>{ if(e.candidate) sock.emit('call:ice',{call_id:cur.call_id,to_user_id:cur.other.id,candidate:e.candidate}); };
-  pc.ontrack=e=>{ const v=document.getElementById('cvRemote'); if(v) v.srcObject=e.streams[0]; };
+  pc.ontrack=e=>{ const v=document.getElementById('cvRemote')||document.getElementById('cvRemoteAudio'); if(v){ v.srcObject=e.streams[0]; v.play?.().catch(()=>{}); } };
   pc.onconnectionstatechange=()=>{ if(pc.connectionState==='failed') callFail('Connection failed — check your network.'); };
   // flush queued ICE
   (cur.iceQ||[]).forEach(c=>pc.addIceCandidate(new RTCIceCandidate(c)).catch(()=>{})); cur.iceQ=[];
@@ -155,7 +161,7 @@ function showCallingUI(other,kind,connected){
   const ov=document.createElement('div'); ov.className='callov'; ov.id='callOv';
   const video=kind==='video';
   ov.innerHTML=`
-    ${video?`<div class="callvideos"><video id="cvRemote" class="remote" autoplay playsinline></video><video id="cvLocal" class="local" autoplay playsinline muted></video></div>`:''}
+    ${video?`<div class="callvideos"><video id="cvRemote" class="remote" autoplay playsinline></video><video id="cvLocal" class="local" autoplay playsinline muted></video></div>`:`<audio id="cvRemoteAudio" autoplay playsinline></audio>`}
     <div class="callui">
       ${video?'':'<div class="callav">'+av(other,'lg')+'</div>'}
       <div class="callname">${esc(other.display_name)}</div>
@@ -170,10 +176,11 @@ function showCallingUI(other,kind,connected){
       </div>
     </div>`;
   document.body.appendChild(ov);
-  // Speaker routing (setSinkId) doesn't exist on iOS Safari — iOS routes call
-  // audio itself (earpiece for voice, speaker for video). Hide the button
-  // there instead of showing one that can only error.
-  if (typeof HTMLMediaElement.prototype.setSinkId !== 'function') ov.querySelector('#cSpk')?.remove();
+  // Speaker routing (setSinkId) doesn't exist on older iOS Safari — iOS routes
+  // call audio itself (earpiece for voice, speaker for video). Hide the button
+  // when the actual remote audio element can't do it.
+  const remoteEl=ov.querySelector('#cvRemote')||ov.querySelector('#cvRemoteAudio');
+  if(!remoteEl||typeof remoteEl.setSinkId!=='function') ov.querySelector('#cSpk')?.remove();
   if(cur?.stream&&video){ const lv=ov.querySelector('#cvLocal'); if(lv) lv.srcObject=cur.stream; }
   // duration ticker
   const durEl=ov.querySelector('#cDur'), stEl=ov.querySelector('#cState');
@@ -205,7 +212,7 @@ function showCallingUI(other,kind,connected){
   };
   const spkB=ov.querySelector('#cSpk');
   if(spkB) spkB.onclick=async e=>{
-    const v=ov.querySelector('#cvRemote');
+    const v=ov.querySelector('#cvRemote')||ov.querySelector('#cvRemoteAudio');
     if(v&&typeof v.setSinkId==='function'){
       try{ await v.setSinkId(''); e.currentTarget.classList.toggle('off'); toast('Speaker toggled.','ok'); }
       catch{ toast('Speaker control not supported on this device.','err'); }
