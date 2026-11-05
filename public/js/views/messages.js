@@ -1,6 +1,6 @@
 /* Naija Wave — messages: conversations list + thread (realtime, offline queue). */
 import { api, auth, sock } from '../api.js';
-import { startCall } from '../calls.js';
+import { startCall } from '../calls.js?v=2';
 import { toast, esc, av, tick, timeAgo, fullDate, fmtDur, openSheet, openModal, confirmDlg, menuAt, skelPosts, emptyState, errCard, presenceDot } from '../ui.js';
 
 let activeConv=null, pollTimer=null;
@@ -335,11 +335,11 @@ async function renderThread(view, convId){
   /* --- header actions --- */
   view.querySelector('#tCall').onclick=async()=>{
     if(!other) return;
-    (await import('../calls.js')).startCall(other,'voice');
+    (await import('../calls.js?v=2')).startCall(other,'voice');
   };
   view.querySelector('#tVideo').onclick=async()=>{
     if(!other) return;
-    (await import('../calls.js')).startCall(other,'video');
+    (await import('../calls.js?v=2')).startCall(other,'video');
   };
   view.querySelector('#tMenu').onclick=e=>{
     const r=e.currentTarget.getBoundingClientRect();

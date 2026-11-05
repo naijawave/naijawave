@@ -70,7 +70,14 @@ app.use('/uploads', express.static(UPLOAD_DIR, { maxAge: '30d' }));
 
 // ---- frontend SPA ----
 const PUBLIC = path.join(__dirname, '..', 'public');
-app.use(express.static(PUBLIC, { maxAge: '1h' }));
+app.use(express.static(PUBLIC, {
+  maxAge: '1h',
+  // App code (HTML/JS/CSS) must revalidate on every load — otherwise phones
+  // keep running a stale copy for up to an hour after each deploy.
+  setHeaders(res, filePath) {
+    if (/\.(html|js|css|json)$/.test(filePath)) res.setHeader('Cache-Control', 'no-cache');
+  },
+}));
 app.use((req, res, next) => {
   if (req.path.startsWith('/uploads/')) return next();
   if (req.path.startsWith('/api/')) return res.status(404).json({ error: 'Not found.' });

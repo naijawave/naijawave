@@ -176,11 +176,14 @@ function showCallingUI(other,kind,connected){
       </div>
     </div>`;
   document.body.appendChild(ov);
-  // Speaker routing (setSinkId) doesn't exist on older iOS Safari — iOS routes
-  // call audio itself (earpiece for voice, speaker for video). Hide the button
-  // when the actual remote audio element can't do it.
+  // Speaker routing (setSinkId) is missing on older iOS Safari and present-
+  // but-broken on newer iOS — it exists yet throws when called. iOS routes
+  // call audio itself anyway (earpiece for voice, speaker for video), so
+  // hide the button on all iPhones/iPads, and anywhere the remote audio
+  // element can't actually do it.
+  const isiOS=/iPhone|iPad|iPod/.test(navigator.userAgent||'');
   const remoteEl=ov.querySelector('#cvRemote')||ov.querySelector('#cvRemoteAudio');
-  if(!remoteEl||typeof remoteEl.setSinkId!=='function') ov.querySelector('#cSpk')?.remove();
+  if(isiOS||!remoteEl||typeof remoteEl.setSinkId!=='function') ov.querySelector('#cSpk')?.remove();
   if(cur?.stream&&video){ const lv=ov.querySelector('#cvLocal'); if(lv) lv.srcObject=cur.stream; }
   // duration ticker
   const durEl=ov.querySelector('#cDur'), stEl=ov.querySelector('#cState');

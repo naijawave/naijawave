@@ -1,6 +1,6 @@
 /* Naija Wave — app bootstrap: chrome, nav, socket wiring, badges. */
 import { api, auth, sock } from './api.js';
-import { initRouter, routeKey } from './router.js';
+import { initRouter, routeKey } from './router.js?v=2';
 import { toast, av, esc, tick } from './ui.js';
 
 const TABS=[
@@ -120,7 +120,7 @@ function wireGlobal(){
     else if(n.type==='verification') toast(n.text||'Verification update','ok');
     else if(n.type==='announcement') toast(n.text||'New announcement from Naija Wave');
   });
-  sock.on('call:incoming', d=>{ import('./calls.js').then(m=>{ m.wireCalls(); m.handleIncoming(d); }); });
+  sock.on('call:incoming', d=>{ import('./calls.js?v=2').then(m=>{ m.wireCalls(); m.handleIncoming(d); }); });
   sock.onNet(offline=>{ if(!offline){ refreshBadges(); document.dispatchEvent(new CustomEvent('nw:reconnect')); } });
   document.addEventListener('nw:posted',()=>{});
   setInterval(refreshBadges, 45000);
