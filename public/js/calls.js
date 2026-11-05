@@ -4,6 +4,18 @@ import { toast, esc, av } from './ui.js';
 
 let iceServers=[{urls:'stun:stun.l.google.com:19302'}];
 let cur=null; // active call session
+// Keep the remote audio actually playing. On iOS, play() can fail silently
+// (autoplay lock) even though the track arrived — so retry it on a timer
+// and on any tap, until the element is really playing.
+let playRetryT=null;
+function ensureRemotePlays(){
+  const v=document.getElementById('cvRemote')||document.getElementById('cvRemoteAudio');
+  if(!v) return;
+  v.muted=false; v.volume=1;
+  if(v.paused){ v.play?.().catch(()=>{}); }
+}
+function startPlayRetry(){ stopPlayRetry(); ensureRemotePlays(); playRetryT=setInterval(ensureRemotePlays,1000); }
+function stopPlayRetry(){ if(playRetryT){ clearInterval(playRetryT); playRetryT=null; } }
 // Diagnostic state for the call screen (helps see where a call breaks).
 let diag={relay:false,track:false};
 
@@ -58,7 +70,7 @@ export async function startCall(other, kind='voice'){
   // Attach handlers BEFORE createOffer/setLocalDescription — ICE gathering
   // starts there, and candidates gathered before the handler is set are lost.
   pc.onicecandidate=e=>{ if(e.candidate){ if(/ relay /.test(e.candidate.candidate)) diag.relay=true; setDiag(); sock.emit('call:ice',{call_id,to_user_id:other.id,candidate:e.candidate}); } };
-  pc.ontrack=e=>{ diag.track=true; setDiag(); const v=document.getElementById('cvRemote')||document.getElementById('cvRemoteAudio'); if(v){ v.srcObject=e.streams[0]; v.play?.().catch(()=>{}); } };
+  pc.ontrack=e=>{ diag.track=true; setDiag(); const v=document.getElementById('cvRemote')||document.getElementById('cvRemoteAudio'); if(v){ v.srcObject=e.streams[0]; ensureRemotePlays(); } };
   pc.onconnectionstatechange=()=>{ setDiag(); if(pc.connectionState==='failed') callFail('Connection failed — check your network.'); };
   attachDiag(pc);
   stream.getTracks().forEach(t=>pc.addTrack(t,stream));
@@ -109,7 +121,6 @@ export function handleIncoming({from_user, kind, sdp_offer, call_id}){
       <button class="cbtn accept" id="cAcc" aria-label="Accept"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 2 .7 2.9a2 2 0 0 1-.5 2.1L8.1 10a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.9.5 2.9.7a2 2 0 0 1 1.6 2z"/></svg></button>
     </div>`;
   document.body.appendChild(ov);
-  setDiag(); // show the current ICE/connection state right away
   ring(ov);
   ov.querySelector('#cDec').onclick=()=>{ sock.emit('call:reject',{call_id,to_user_id:cur.other.id}); clearTimeout(cur.ringT); ov.remove(); cur=null; };
   ov.querySelector('#cAcc').onclick=()=>acceptCall(ov);
@@ -153,7 +164,7 @@ async function acceptCall(ov){
   // Attach handlers BEFORE setRemoteDescription — the remote track / ICE can
   // arrive as soon as the descriptions are set.
   pc.onicecandidate=e=>{ if(e.candidate){ if(/ relay /.test(e.candidate.candidate)) diag.relay=true; setDiag(); sock.emit('call:ice',{call_id:cur.call_id,to_user_id:cur.other.id,candidate:e.candidate}); } };
-  pc.ontrack=e=>{ diag.track=true; setDiag(); const v=document.getElementById('cvRemote')||document.getElementById('cvRemoteAudio'); if(v){ v.srcObject=e.streams[0]; v.play?.().catch(()=>{}); } };
+  pc.ontrack=e=>{ diag.track=true; setDiag(); const v=document.getElementById('cvRemote')||document.getElementById('cvRemoteAudio'); if(v){ v.srcObject=e.streams[0]; ensureRemotePlays(); } };
   pc.onconnectionstatechange=()=>{ setDiag(); if(pc.connectionState==='failed') callFail('Connection failed — check your network.'); };
   attachDiag(pc);
   stream.getTracks().forEach(t=>pc.addTrack(t,stream));
@@ -219,6 +230,10 @@ function showCallingUI(other,kind,connected){
     </div>`;
   document.body.appendChild(ov);
   setDiag(); // show the current ICE/connection state right away
+  if(connected) startPlayRetry();
+  // Tapping anywhere on the call screen retries playback (a tap is a user
+  // gesture, which is what iOS needs to unlock audio).
+  ov.addEventListener('pointerdown',()=>ensureRemotePlays());
   // Speaker routing (setSinkId) is missing on older iOS Safari and present-
   // but-broken on newer iOS — it exists yet throws when called. iOS routes
   // call audio itself anyway (earpiece for voice, speaker for video), so
@@ -273,6 +288,7 @@ function logCall(status,duration_sec){
   api.post('/api/calls/log',{other_user_id:cur.other.id,kind:cur.kind,duration_sec,status}).catch(()=>{});
 }
 function endCall(silent){
+  stopPlayRetry();
   if(cur){
     clearTimeout(cur.noAnsT); clearTimeout(cur.ringT); clearInterval(cur.ringIv); clearInterval(cur.durT);
     if(!silent&&cur.role==='caller'&&!cur.accepted) sock.emit('call:end',{call_id:cur.call_id,to_user_id:cur.other.id});
