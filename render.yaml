@@ -12,7 +12,7 @@ services:
     name: naijawave
     runtime: node
     plan: free
-    buildCommand: npm ci
+    buildCommand: npm ci && (npm rebuild better-sqlite3 --build-from-source || true)
     startCommand: node src/index.js
     healthCheckPath: /api/config
     envVars:
