@@ -19,9 +19,10 @@ function setDiag(){
   el.textContent=`ICE: ${pc?.iceConnectionState||'?'} · Net: ${pc?.connectionState||'?'} · Relay: ${diag.relay?'yes':'no'} · Track: ${diag.track?'yes':'no'}`;
 }
 function attachDiag(pc){
-  pc.onicecandidate=e=>{ if(e.candidate){ if(/ relay /.test(e.candidate.candidate)) diag.relay=true; setDiag(); } };
+  // Only adds the ICE-state listener (safe — nothing else uses it).
+  // The candidate/connection handlers are NOT touched here; the diag
+  // updates live inside those handlers so they keep working.
   pc.oniceconnectionstatechange=()=>setDiag();
-  pc.onconnectionstatechange=()=>setDiag();
 }
 const uuid=()=> (crypto.randomUUID?crypto.randomUUID():'c'+Date.now()+Math.random().toString(16).slice(2));
 
@@ -56,9 +57,9 @@ export async function startCall(other, kind='voice'){
   const pc=new RTCPeerConnection({iceServers});
   // Attach handlers BEFORE createOffer/setLocalDescription — ICE gathering
   // starts there, and candidates gathered before the handler is set are lost.
-  pc.onicecandidate=e=>{ if(e.candidate) sock.emit('call:ice',{call_id,to_user_id:other.id,candidate:e.candidate}); };
+  pc.onicecandidate=e=>{ if(e.candidate){ if(/ relay /.test(e.candidate.candidate)) diag.relay=true; setDiag(); sock.emit('call:ice',{call_id,to_user_id:other.id,candidate:e.candidate}); } };
   pc.ontrack=e=>{ diag.track=true; setDiag(); const v=document.getElementById('cvRemote')||document.getElementById('cvRemoteAudio'); if(v){ v.srcObject=e.streams[0]; v.play?.().catch(()=>{}); } };
-  pc.onconnectionstatechange=()=>{ if(pc.connectionState==='failed') callFail('Connection failed — check your network.'); };
+  pc.onconnectionstatechange=()=>{ setDiag(); if(pc.connectionState==='failed') callFail('Connection failed — check your network.'); };
   attachDiag(pc);
   stream.getTracks().forEach(t=>pc.addTrack(t,stream));
   const offer=await pc.createOffer(); await pc.setLocalDescription(offer);
@@ -151,9 +152,9 @@ async function acceptCall(ov){
   const pc=new RTCPeerConnection({iceServers});
   // Attach handlers BEFORE setRemoteDescription — the remote track / ICE can
   // arrive as soon as the descriptions are set.
-  pc.onicecandidate=e=>{ if(e.candidate) sock.emit('call:ice',{call_id:cur.call_id,to_user_id:cur.other.id,candidate:e.candidate}); };
+  pc.onicecandidate=e=>{ if(e.candidate){ if(/ relay /.test(e.candidate.candidate)) diag.relay=true; setDiag(); sock.emit('call:ice',{call_id:cur.call_id,to_user_id:cur.other.id,candidate:e.candidate}); } };
   pc.ontrack=e=>{ diag.track=true; setDiag(); const v=document.getElementById('cvRemote')||document.getElementById('cvRemoteAudio'); if(v){ v.srcObject=e.streams[0]; v.play?.().catch(()=>{}); } };
-  pc.onconnectionstatechange=()=>{ if(pc.connectionState==='failed') callFail('Connection failed — check your network.'); };
+  pc.onconnectionstatechange=()=>{ setDiag(); if(pc.connectionState==='failed') callFail('Connection failed — check your network.'); };
   attachDiag(pc);
   stream.getTracks().forEach(t=>pc.addTrack(t,stream));
   await pc.setRemoteDescription(new RTCSessionDescription(cur.offer));
