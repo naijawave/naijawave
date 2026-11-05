@@ -170,6 +170,10 @@ function showCallingUI(other,kind,connected){
       </div>
     </div>`;
   document.body.appendChild(ov);
+  // Speaker routing (setSinkId) doesn't exist on iOS Safari — iOS routes call
+  // audio itself (earpiece for voice, speaker for video). Hide the button
+  // there instead of showing one that can only error.
+  if (typeof HTMLMediaElement.prototype.setSinkId !== 'function') ov.querySelector('#cSpk')?.remove();
   if(cur?.stream&&video){ const lv=ov.querySelector('#cvLocal'); if(lv) lv.srcObject=cur.stream; }
   // duration ticker
   const durEl=ov.querySelector('#cDur'), stEl=ov.querySelector('#cState');
@@ -199,12 +203,13 @@ function showCallingUI(other,kind,connected){
       toast('Camera flipped.','ok');
     }catch{ toast('Could not flip camera on this device.','err'); }
   };
-  ov.querySelector('#cSpk').onclick=async e=>{
+  const spkB=ov.querySelector('#cSpk');
+  if(spkB) spkB.onclick=async e=>{
     const v=ov.querySelector('#cvRemote');
     if(v&&typeof v.setSinkId==='function'){
       try{ await v.setSinkId(''); e.currentTarget.classList.toggle('off'); toast('Speaker toggled.','ok'); }
       catch{ toast('Speaker control not supported on this device.','err'); }
-    }else toast('Speaker control not supported on this device.','err');
+    }else toast('Your phone handles the speaker automatically — use Control Center to switch audio during a call.','err');
   };
   ov.querySelector('#cEnd').onclick=()=>{ if(cur?.accepted) logCall('completed',callSecs()); endCall(false); };
 }
