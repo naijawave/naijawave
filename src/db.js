@@ -1,12 +1,16 @@
 // Naija Wave — SQLite database layer (better-sqlite3)
 const path = require('path');
 const fs = require('fs');
+console.log('[boot] db.js: requiring better-sqlite3...');
 const Database = require('better-sqlite3');
+console.log('[boot] db.js: better-sqlite3 loaded');
 
 const DB_PATH = process.env.DB_PATH || path.join(__dirname, '..', 'data', 'naijawave.db');
 fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
+console.log('[boot] db.js: opening database at', DB_PATH);
 
 const db = new Database(DB_PATH);
+console.log('[boot] db.js: database opened');
 db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
 

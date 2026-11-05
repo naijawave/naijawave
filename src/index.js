@@ -1,13 +1,17 @@
 // Naija Wave — server entry. Serves the API + the frontend SPA + uploads.
+console.log('[boot] starting naija-wave...');
 require('dotenv').config();
+console.log('[boot] dotenv ok');
 const path = require('path');
 const fs = require('fs');
 const http = require('http');
 const express = require('express');
 const helmet = require('helmet');
 const cors = require('cors');
+console.log('[boot] web stack ok');
 
 const db = require('./db');
+console.log('[boot] db ok');
 const { authOptional } = require('./middleware/auth');
 const { generalApi } = require('./middleware/rateLimit');
 const { publicUser } = require('./utils/helpers');

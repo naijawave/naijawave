@@ -12,7 +12,7 @@ services:
     name: naijawave
     runtime: node
     plan: free
-    buildCommand: npm install
+    buildCommand: npm ci
     startCommand: node src/index.js
     healthCheckPath: /api/config
     envVars:
