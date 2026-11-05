@@ -16,6 +16,47 @@ function ensureRemotePlays(){
 }
 function startPlayRetry(){ stopPlayRetry(); ensureRemotePlays(); playRetryT=setInterval(ensureRemotePlays,1000); }
 function stopPlayRetry(){ if(playRetryT){ clearInterval(playRetryT); playRetryT=null; } }
+
+/* ---- Remote audio through Web Audio (real loudspeaker path) ----
+   A plain <audio> element on iOS is treated as a phone-call earpiece
+   stream. Routing the remote track through an AudioContext plays it as
+   media, which is how you get it out loud. Also feeds a live level
+   meter so you can SEE the other person's voice arriving. */
+let actx=null, remoteAnalyser=null, levelT=null;
+function getAudioCtx(){
+  if(!actx){ try{ actx=new (window.AudioContext||window.webkitAudioContext)(); }catch{ actx=null; } }
+  if(actx && actx.state==='suspended') actx.resume().catch(()=>{});
+  return actx;
+}
+function routeRemoteAudio(stream){
+  try{
+    const ctx=getAudioCtx();
+    if(!ctx) return false;
+    const src=ctx.createMediaStreamSource(stream);
+    remoteAnalyser=ctx.createAnalyser(); remoteAnalyser.fftSize=256;
+    src.connect(remoteAnalyser); remoteAnalyser.connect(ctx.destination);
+    // Mute the element so the same audio doesn't play twice.
+    const v=document.getElementById('cvRemote')||document.getElementById('cvRemoteAudio');
+    if(v) v.muted=true;
+    startLevelMeter();
+    return true;
+  }catch{ return false; }
+}
+function startLevelMeter(){
+  stopLevelMeter();
+  const bar=document.getElementById('cLevelBar');
+  if(!bar||!remoteAnalyser) return;
+  const data=new Uint8Array(remoteAnalyser.frequencyBinCount);
+  levelT=setInterval(()=>{
+    if(!remoteAnalyser) return;
+    remoteAnalyser.getByteTimeDomainData(data);
+    let peak=0;
+    for(let i=0;i<data.length;i++){ const v=Math.abs(data[i]-128)/128; if(v>peak) peak=v; }
+    bar.style.width=Math.min(100,Math.round(peak*300))+'%';
+    bar.style.background=peak>0.04?'#22c55e':'#334155';
+  },120);
+}
+function stopLevelMeter(){ if(levelT){ clearInterval(levelT); levelT=null; } remoteAnalyser=null; }
 // Diagnostic state for the call screen (helps see where a call breaks).
 let diag={relay:false,track:false};
 
@@ -70,7 +111,7 @@ export async function startCall(other, kind='voice'){
   // Attach handlers BEFORE createOffer/setLocalDescription — ICE gathering
   // starts there, and candidates gathered before the handler is set are lost.
   pc.onicecandidate=e=>{ if(e.candidate){ if(/ relay /.test(e.candidate.candidate)) diag.relay=true; setDiag(); sock.emit('call:ice',{call_id,to_user_id:other.id,candidate:e.candidate}); } };
-  pc.ontrack=e=>{ diag.track=true; setDiag(); const v=document.getElementById('cvRemote')||document.getElementById('cvRemoteAudio'); if(v){ v.srcObject=e.streams[0]; ensureRemotePlays(); } };
+  pc.ontrack=e=>{ diag.track=true; setDiag(); const stream=e.streams[0]; const v=document.getElementById('cvRemote')||document.getElementById('cvRemoteAudio'); if(v){ v.srcObject=stream; } if(!routeRemoteAudio(stream)) ensureRemotePlays(); };
   pc.onconnectionstatechange=()=>{ setDiag(); if(pc.connectionState==='failed') callFail('Connection failed — check your network.'); };
   attachDiag(pc);
   stream.getTracks().forEach(t=>pc.addTrack(t,stream));
@@ -164,7 +205,7 @@ async function acceptCall(ov){
   // Attach handlers BEFORE setRemoteDescription — the remote track / ICE can
   // arrive as soon as the descriptions are set.
   pc.onicecandidate=e=>{ if(e.candidate){ if(/ relay /.test(e.candidate.candidate)) diag.relay=true; setDiag(); sock.emit('call:ice',{call_id:cur.call_id,to_user_id:cur.other.id,candidate:e.candidate}); } };
-  pc.ontrack=e=>{ diag.track=true; setDiag(); const v=document.getElementById('cvRemote')||document.getElementById('cvRemoteAudio'); if(v){ v.srcObject=e.streams[0]; ensureRemotePlays(); } };
+  pc.ontrack=e=>{ diag.track=true; setDiag(); const stream=e.streams[0]; const v=document.getElementById('cvRemote')||document.getElementById('cvRemoteAudio'); if(v){ v.srcObject=stream; } if(!routeRemoteAudio(stream)) ensureRemotePlays(); };
   pc.onconnectionstatechange=()=>{ setDiag(); if(pc.connectionState==='failed') callFail('Connection failed — check your network.'); };
   attachDiag(pc);
   stream.getTracks().forEach(t=>pc.addTrack(t,stream));
@@ -220,6 +261,8 @@ function showCallingUI(other,kind,connected){
       <div class="callkind" id="cState">${connected?(kind==='video'?'Video call':'Voice call'):'Ringing...'}</div>
       <div class="calldur" id="cDur">0:00</div>
       <div class="calldiag" id="cDiag" style="font-size:11px;opacity:.65;margin-top:4px">ICE: … · Net: … · Relay: … · Track: …</div>
+      <div style="width:180px;height:6px;background:#1e293b;border-radius:3px;margin:8px auto 0;overflow:hidden"><div id="cLevelBar" style="height:100%;width:0%;background:#334155;border-radius:3px"></div></div>
+      <div style="font-size:10px;opacity:.5;margin-top:2px">their voice level</div>
       <div class="callbtns">
         <button class="cbtn" id="cMute" aria-label="Mute"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><path d="M12 19v4"/></svg><small>Mute</small></button>
         ${video?`<button class="cbtn" id="cCam" aria-label="Camera"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg><small>Camera</small></button>
@@ -233,15 +276,13 @@ function showCallingUI(other,kind,connected){
   if(connected) startPlayRetry();
   // Tapping anywhere on the call screen retries playback (a tap is a user
   // gesture, which is what iOS needs to unlock audio).
-  ov.addEventListener('pointerdown',()=>ensureRemotePlays());
-  // Speaker routing (setSinkId) is missing on older iOS Safari and present-
-  // but-broken on newer iOS — it exists yet throws when called. iOS routes
-  // call audio itself anyway (earpiece for voice, speaker for video), so
-  // hide the button on all iPhones/iPads, and anywhere the remote audio
-  // element can't actually do it.
-  const isiOS=/iPhone|iPad|iPod/.test(navigator.userAgent||'');
+  ov.addEventListener('pointerdown',()=>{ getAudioCtx(); ensureRemotePlays(); });
+  // Speaker button: on iOS, setSinkId doesn't exist, so the button can't
+  // switch outputs the Android way — but it CAN unlock/resume the audio
+  // (a tap is a user gesture) and route it out loud via Web Audio. So
+  // keep it on iPhones now; only hide it if there's no remote element.
   const remoteEl=ov.querySelector('#cvRemote')||ov.querySelector('#cvRemoteAudio');
-  if(isiOS||!remoteEl||typeof remoteEl.setSinkId!=='function') ov.querySelector('#cSpk')?.remove();
+  if(!remoteEl) ov.querySelector('#cSpk')?.remove();
   if(cur?.stream&&video){ const lv=ov.querySelector('#cvLocal'); if(lv) lv.srcObject=cur.stream; }
   // duration ticker
   const durEl=ov.querySelector('#cDur'), stEl=ov.querySelector('#cState');
@@ -273,11 +314,16 @@ function showCallingUI(other,kind,connected){
   };
   const spkB=ov.querySelector('#cSpk');
   if(spkB) spkB.onclick=async e=>{
+    // Resume the audio engine (a tap unlocks it on iOS) and re-route the
+    // remote sound out loud. On Android Chrome, also try the system output.
+    getAudioCtx(); ensureRemotePlays();
     const v=ov.querySelector('#cvRemote')||ov.querySelector('#cvRemoteAudio');
     if(v&&typeof v.setSinkId==='function'){
-      try{ await v.setSinkId(''); e.currentTarget.classList.toggle('off'); toast('Speaker toggled.','ok'); }
-      catch{ toast('Speaker control not supported on this device.','err'); }
-    }else toast('Your phone handles the speaker automatically — use Control Center to switch audio during a call.','err');
+      try{ await v.setSinkId(''); e.currentTarget.classList.toggle('off'); toast('Speaker toggled.','ok'); return; }
+      catch{ /* fall through to the iOS guidance below */ }
+    }
+    e.currentTarget.classList.toggle('off');
+    toast('Speaker on — if it is still quiet, swipe down for Control Center and set the audio output to iPhone Speaker.','ok');
   };
   ov.querySelector('#cEnd').onclick=()=>{ if(cur?.accepted) logCall('completed',callSecs()); endCall(false); };
 }
@@ -288,7 +334,7 @@ function logCall(status,duration_sec){
   api.post('/api/calls/log',{other_user_id:cur.other.id,kind:cur.kind,duration_sec,status}).catch(()=>{});
 }
 function endCall(silent){
-  stopPlayRetry();
+  stopPlayRetry(); stopLevelMeter();
   if(cur){
     clearTimeout(cur.noAnsT); clearTimeout(cur.ringT); clearInterval(cur.ringIv); clearInterval(cur.durT);
     if(!silent&&cur.role==='caller'&&!cur.accepted) sock.emit('call:end',{call_id:cur.call_id,to_user_id:cur.other.id});
