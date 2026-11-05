@@ -1,18 +1,17 @@
 # Render Blueprint — one-click deploy of Naija Wave (API + frontend + realtime).
 # In Render: New > Blueprint > connect your repo. Then set the env vars below.
 #
-# NOTE (free plan):
-# - Uses Render's native Node runtime (no Docker): simpler + faster builds.
-# - PORT is injected by Render automatically — do NOT set it here.
-# - No persistent disk on the free plan: the database and uploads live on the
-#   instance filesystem. They survive sleep/restarts, but reset on redeploy.
-#   Add a disk (Starter plan) or move to Postgres before real users arrive.
+# DATABASE: Postgres via Supabase (free tier). The app uses pg when DATABASE_URL
+# is set. Data survives redeploys — the old SQLite wipe-on-deploy problem is gone.
+# Create a free project at supabase.com → Project Settings → Database → copy the
+# connection string (URI) → paste it as DATABASE_URL in the Render dashboard.
+# (Do NOT commit the real connection string to the repo.)
 services:
   - type: web
     name: naijawave
     runtime: node
     plan: free
-    buildCommand: npm ci && (npm rebuild better-sqlite3 --build-from-source || true) && node scripts/smoke-sqlite.js
+    buildCommand: npm ci && node scripts/smoke-pg.js
     startCommand: node src/index.js
     healthCheckPath: /api/config
     envVars:
@@ -20,6 +19,8 @@ services:
         value: 24
       - key: NODE_ENV
         value: production
+      - key: DATABASE_URL
+        sync: false
       - key: SETUP_KEY
         generateValue: true
       - key: JWT_SECRET

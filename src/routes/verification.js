@@ -28,31 +28,31 @@ const BADGES = {
 router.get('/badges', (req, res) => res.json({ badges: BADGES }));
 
 // Apply for verification
-router.post('/apply', authRequired, (req, res) => {
+router.post('/apply', authRequired, async (req, res) => {
   const { category, statement, links = [], org_name } = req.body || {};
   if (!['blue', 'gold'].includes(category)) return res.status(400).json({ error: 'Choose Blue (individual) or Gold (public figure / organisation).' });
   if (req.user.verification !== 'none') return res.status(400).json({ error: 'This account is already verified.' });
   if (!req.user.contact_verified) return res.status(403).json({ error: 'Verify your email/phone first.' });
-  const pending = db.prepare("SELECT id FROM verification_apps WHERE user_id = ? AND status = 'pending'").get(req.user.id);
+  const pending = await db.get("SELECT id FROM verification_apps WHERE user_id = $1 AND status = 'pending'", req.user.id);
   if (pending) return res.status(409).json({ error: 'You already have an application under review.', code: 'ALREADY_PENDING' });
   const cleanStatement = String(statement || '').slice(0, 1000).trim();
   if (cleanStatement.length < 30) return res.status(400).json({ error: 'Tell us a bit more about yourself (at least 30 characters).' });
   const cleanLinks = (Array.isArray(links) ? links : []).map(l => String(l).slice(0, 300)).filter(l => /^https?:\/\//.test(l)).slice(0, 5);
   if (!cleanLinks.length) return res.status(400).json({ error: 'Add at least one public link as evidence (website or social profile).' });
 
-  const info = db.prepare(`INSERT INTO verification_apps (user_id, category, statement, links, org_name)
-    VALUES (?,?,?,?,?)`).run(req.user.id, category, cleanStatement, JSON.stringify(cleanLinks),
+  const info = await db.run(`INSERT INTO verification_apps (user_id, category, statement, links, org_name)
+    VALUES ($1,$2,$3,$4,$5) RETURNING id`, req.user.id, category, cleanStatement, JSON.stringify(cleanLinks),
     category === 'gold' ? String(org_name || '').slice(0, 120) : null);
-  db.prepare(`INSERT INTO verification_history (user_id, action, category, note) VALUES (?,?,?,?)`)
-    .run(req.user.id, 'applied', category, 'Application submitted');
-  audit(req.user.id, 'verification.apply', 'verification_app', info.lastInsertRowid, { category });
+  await db.run(`INSERT INTO verification_history (user_id, action, category, note) VALUES ($1,$2,$3,$4) RETURNING id`,
+    req.user.id, 'applied', category, 'Application submitted');
+  await audit(req.user.id, 'verification.apply', 'verification_app', info.lastInsertRowid, { category });
   res.status(201).json({ application: { id: info.lastInsertRowid, category, status: 'pending' } });
 });
 
 // My application + history
-router.get('/mine', authRequired, (req, res) => {
-  const app = db.prepare('SELECT * FROM verification_apps WHERE user_id = ? ORDER BY id DESC LIMIT 1').get(req.user.id);
-  const history = db.prepare('SELECT * FROM verification_history WHERE user_id = ? ORDER BY id DESC LIMIT 20').all(req.user.id);
+router.get('/mine', authRequired, async (req, res) => {
+  const app = await db.get('SELECT * FROM verification_apps WHERE user_id = $1 ORDER BY id DESC LIMIT 1', req.user.id);
+  const history = await db.all('SELECT * FROM verification_history WHERE user_id = $1 ORDER BY id DESC LIMIT 20', req.user.id);
   const clean = (a) => a && ({
     id: a.id, category: a.category, status: a.status, note: a.note,
     statement: a.statement, links: JSON.parse(a.links || '[]'), org_name: a.org_name,

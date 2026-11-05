@@ -4,28 +4,45 @@ Plain-language guide for a beginner founder. No paid service is used without you
 
 ## What you're deploying
 
-One app that contains everything: the website (frontend), the API (backend), the
-database (SQLite file), file uploads, and the realtime server (chat/calls/notifications).
-Deploying it once gives you a public link like `https://naijawave.onrender.com`.
+One app that contains everything: the website (frontend), the API (backend),
+file uploads, and the realtime server (chat/calls/notifications). The database
+is **Postgres** (free Supabase project) — set once via `DATABASE_URL`, and your
+data survives redeploys. Deploying once gives you a public link like
+`https://naijawave.onrender.com`.
+
+## Database setup (do this once — free)
+
+1. Go to **supabase.com** → sign up (free) → **New project** (pick any name,
+   set a database password, choose the closest region).
+2. Wait ~2 minutes for the project to provision.
+3. Go to **Project Settings → Database** → find **Connection string** → choose
+   **URI** → copy it (it looks like `postgresql://postgres.xxx:password@...`).
+4. In Render: your service → **Environment** → add `DATABASE_URL` → paste the
+   connection string → **Save, rebuild, and deploy**.
+5. The app creates all tables automatically on first boot. Your data now
+   survives every redeploy.
+
+(Keep the connection string private — it's a password. Never commit it to git.)
 
 ## Option A — Render (recommended for starting free) ⭐
 
 1. Push this folder to a GitHub repo (see "Get the code online" below).
 2. Go to render.com → **New +** → **Blueprint** → connect your repo.
-3. Render reads `render.yaml` and creates the web service + a 1GB disk (so your
-   database and uploads survive restarts).
-4. In the service's **Environment** tab, Render auto-generates `SETUP_KEY` and
+3. Render reads `render.yaml` and creates the web service.
+4. Set up the database (see "Database setup" above) — add `DATABASE_URL` in the
+   **Environment** tab.
+5. In the service's **Environment** tab, Render auto-generates `SETUP_KEY` and
    `JWT_SECRET`. Copy the `SETUP_KEY` somewhere safe — you need it once to create
    your founder account.
-5. Wait for deploy → you get a free link like `https://naijawave.onrender.com`.
-6. Create your founder account (see `docs/FOUNDER.md`), then log in.
+6. Wait for deploy → you get a free link like `https://naijawave.onrender.com`.
+7. Create your founder account (see `docs/FOUNDER.md`), then log in.
 
 **Free-tier notes:** Render's free plan sleeps after ~15 min of no traffic — the
 first visit after sleep takes ~30–60s to wake. That's fine for testing/launch; the
-$7/month Starter plan removes sleeping. Note: the free plan has no persistent
-disk, so the database and uploads live inside the container — they survive sleep
-and restarts, but reset when you redeploy or change settings. Add a disk (Starter
-plan) or move to Postgres before you have real users you can't afford to lose.
+$7/month Starter plan removes sleeping. Uploads (images/voice notes) still live on
+the instance filesystem and reset on redeploy — move uploads to free object
+storage (Cloudflare R2) before real users arrive; the database is already safe
+on Supabase.
 
 ## Option B — Fly.io (also free-ish, better for realtime)
 

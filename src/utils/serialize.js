@@ -1,60 +1,61 @@
 // Serialize a post row into the full API post object.
 const { publicUser } = require('./helpers');
 
-function mediaFor(db, postId) {
-  return db.prepare('SELECT id, url, kind, mime, size, duration FROM media WHERE post_id = ? ORDER BY id').all(postId);
+async function mediaFor(db, postId) {
+  return db.all('SELECT id, url, kind, mime, size, duration FROM media WHERE post_id = $1 ORDER BY id', postId);
 }
 
-function pollFor(db, postId, viewerId) {
-  const poll = db.prepare('SELECT * FROM polls WHERE post_id = ?').get(postId);
+async function pollFor(db, postId, viewerId) {
+  const poll = await db.get('SELECT * FROM polls WHERE post_id = $1', postId);
   if (!poll) return null;
-  const options = db.prepare('SELECT id, text, votes FROM poll_options WHERE poll_id = ? ORDER BY id').all(poll.id);
+  const options = await db.all('SELECT id, text, votes FROM poll_options WHERE poll_id = $1 ORDER BY id', poll.id);
   const total = options.reduce((s, o) => s + o.votes, 0);
   let myVote = null;
   if (viewerId) {
-    const v = db.prepare('SELECT option_id FROM poll_votes WHERE poll_id = ? AND user_id = ?').get(poll.id, viewerId);
+    const v = await db.get('SELECT option_id FROM poll_votes WHERE poll_id = $1 AND user_id = $2', poll.id, viewerId);
     if (v) myVote = v.option_id;
   }
   return { id: poll.id, question: poll.question, options, total_votes: total, my_vote: myVote };
 }
 
-function countsFor(db, postId) {
-  const likes = db.prepare('SELECT COUNT(*) c FROM post_likes WHERE post_id = ?').get(postId).c;
-  const comments = db.prepare('SELECT COUNT(*) c FROM comments WHERE post_id = ? AND deleted_at IS NULL').get(postId).c;
-  const reposts = db.prepare('SELECT COUNT(*) c FROM posts WHERE repost_of = ? AND deleted_at IS NULL').get(postId).c;
-  const quotes = db.prepare('SELECT COUNT(*) c FROM posts WHERE quote_of = ? AND deleted_at IS NULL').get(postId).c;
+async function countsFor(db, postId) {
+  const likes = (await db.get('SELECT COUNT(*)::int c FROM post_likes WHERE post_id = $1', postId)).c;
+  const comments = (await db.get('SELECT COUNT(*)::int c FROM comments WHERE post_id = $1 AND deleted_at IS NULL', postId)).c;
+  const reposts = (await db.get('SELECT COUNT(*)::int c FROM posts WHERE repost_of = $1 AND deleted_at IS NULL', postId)).c;
+  const quotes = (await db.get('SELECT COUNT(*)::int c FROM posts WHERE quote_of = $1 AND deleted_at IS NULL', postId)).c;
   return { likes, comments, reposts, quotes };
 }
 
-function tagsFor(db, postId) {
-  return db.prepare(`SELECT h.tag FROM post_hashtags ph JOIN hashtags h ON h.id = ph.hashtag_id WHERE ph.post_id = ?`).all(postId).map(r => r.tag);
+async function tagsFor(db, postId) {
+  const rows = await db.all(`SELECT h.tag FROM post_hashtags ph JOIN hashtags h ON h.id = ph.hashtag_id WHERE ph.post_id = $1`, postId);
+  return rows.map(r => r.tag);
 }
 
-function serializePost(db, row, viewerId, depth = 0) {
+async function serializePost(db, row, viewerId, depth = 0) {
   if (!row) return null;
-  const author = publicUser(db.prepare('SELECT * FROM users WHERE id = ?').get(row.user_id));
-  const counts = countsFor(db, row.id);
+  const author = publicUser(await db.get('SELECT * FROM users WHERE id = $1', row.user_id));
+  const counts = await countsFor(db, row.id);
   let liked = false, reposted = false, bookmarked = false;
   if (viewerId) {
-    liked = !!db.prepare('SELECT 1 FROM post_likes WHERE post_id = ? AND user_id = ?').get(row.id, viewerId);
-    reposted = !!db.prepare('SELECT 1 FROM posts WHERE repost_of = ? AND user_id = ? AND deleted_at IS NULL').get(row.id, viewerId);
-    bookmarked = !!db.prepare('SELECT 1 FROM bookmarks WHERE post_id = ? AND user_id = ?').get(row.id, viewerId);
+    liked = !!(await db.get('SELECT 1 FROM post_likes WHERE post_id = $1 AND user_id = $2', row.id, viewerId));
+    reposted = !!(await db.get('SELECT 1 FROM posts WHERE repost_of = $1 AND user_id = $2 AND deleted_at IS NULL', row.id, viewerId));
+    bookmarked = !!(await db.get('SELECT 1 FROM bookmarks WHERE post_id = $1 AND user_id = $2', row.id, viewerId));
   }
   let quoteOf = null, repostOf = null;
   if (depth < 1) {
     if (row.quote_of) {
-      const q = db.prepare("SELECT * FROM posts WHERE id = ? AND deleted_at IS NULL").get(row.quote_of);
-      quoteOf = q ? serializePost(db, q, viewerId, depth + 1) : { deleted: true };
+      const q = await db.get("SELECT * FROM posts WHERE id = $1 AND deleted_at IS NULL", row.quote_of);
+      quoteOf = q ? await serializePost(db, q, viewerId, depth + 1) : { deleted: true };
     }
     if (row.repost_of) {
-      const r = db.prepare("SELECT * FROM posts WHERE id = ? AND deleted_at IS NULL").get(row.repost_of);
-      repostOf = r ? serializePost(db, r, viewerId, depth + 1) : { deleted: true };
+      const r = await db.get("SELECT * FROM posts WHERE id = $1 AND deleted_at IS NULL", row.repost_of);
+      repostOf = r ? await serializePost(db, r, viewerId, depth + 1) : { deleted: true };
     }
   }
   return {
     id: row.id, author, text: row.text, created_at: row.created_at,
-    media: mediaFor(db, row.id), poll: pollFor(db, row.id, viewerId),
-    counts, liked, reposted, bookmarked, hashtags: tagsFor(db, row.id),
+    media: await mediaFor(db, row.id), poll: await pollFor(db, row.id, viewerId),
+    counts, liked, reposted, bookmarked, hashtags: await tagsFor(db, row.id),
     section: row.section, location: row.location || null,
     visibility: row.visibility, is_sponsored: !!row.is_sponsored,
     sponsor_label: row.sponsor_label || null,
@@ -63,7 +64,16 @@ function serializePost(db, row, viewerId, depth = 0) {
   };
 }
 
-// SQL fragment: posts visible to viewer (blocks + followers-only visibility)
+// SQL fragment: posts visible to viewer (blocks + followers-only visibility).
+// Placeholders are plain `?` (same as the old better-sqlite3 convention).
+// Callers splice v.where into a larger query and MUST renumber its `?` to $n
+// using spliceWhere() below, e.g.:
+//
+//   const v = visibilityWhere(viewerId);
+//   const vis = spliceWhere(v.where, params.length); // params bound BEFORE the fragment
+//   const sql = `SELECT p.* FROM posts p WHERE p.section = 'feed' AND ${vis} AND p.user_id = $1`;
+//   const rows = await db.all(sql, ...params, ...v.params, viewerId);
+//
 function visibilityWhere(viewerId) {
   // returns { where, params } to AND with other conditions; alias p for posts
   if (!viewerId) return { where: "p.visibility = 'public'", params: [] };
@@ -74,4 +84,12 @@ function visibilityWhere(viewerId) {
   };
 }
 
-module.exports = { serializePost, visibilityWhere, mediaFor, pollFor };
+// Renumber a `?`-style fragment to pg $n placeholders.
+// `offset` = number of params already bound before the fragment in the final query.
+// Example: fragment's 4 `?` with offset 2 → $3,$4,$5,$6.
+function spliceWhere(fragment, offset) {
+  let n = offset;
+  return String(fragment).replace(/\?/g, () => '$' + (++n));
+}
+
+module.exports = { serializePost, visibilityWhere, spliceWhere, mediaFor, pollFor };

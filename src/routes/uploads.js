@@ -45,7 +45,7 @@ const upload = multer({
 });
 
 router.post('/', authRequired, uploadLimiter, (req, res) => {
-  upload.single('file')(req, res, (err) => {
+  upload.single('file')(req, res, async (err) => {
     if (err) {
       if (err.message === 'FILE_TYPE') return res.status(400).json({ error: 'That file type is not allowed.' });
       if (err.code === 'LIMIT_FILE_SIZE') return res.status(400).json({ error: 'File is too large.' });
@@ -62,8 +62,14 @@ router.post('/', authRequired, uploadLimiter, (req, res) => {
     }
     const url = '/uploads/' + req.file.filename;
     const duration = req.body?.duration ? Number(req.body.duration) : null;
-    const info = db.prepare(`INSERT INTO media (user_id, url, kind, mime, size, duration)
-      VALUES (?,?,?,?,?,?)`).run(req.user.id, url, kind, req.file.mimetype, req.file.size, duration || null);
+    let info;
+    try {
+      info = await db.run(`INSERT INTO media (user_id, url, kind, mime, size, duration)
+        VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`, req.user.id, url, kind, req.file.mimetype, req.file.size, duration || null);
+    } catch (e) {
+      fs.unlinkSync(req.file.path);
+      return res.status(500).json({ error: 'Upload failed. Try again.' });
+    }
     res.status(201).json({
       id: info.lastInsertRowid, url, kind, mime: req.file.mimetype,
       size: req.file.size, duration: duration || null,
@@ -71,13 +77,13 @@ router.post('/', authRequired, uploadLimiter, (req, res) => {
   });
 });
 
-router.delete('/:id', authRequired, (req, res) => {
-  const m = db.prepare('SELECT * FROM media WHERE id = ?').get(req.params.id);
+router.delete('/:id', authRequired, async (req, res) => {
+  const m = await db.get('SELECT * FROM media WHERE id = $1', req.params.id);
   if (!m) return res.status(404).json({ error: 'File not found.' });
   if (m.user_id !== req.user.id) return res.status(403).json({ error: 'Not allowed.' });
   if (m.post_id || m.message_id) return res.status(400).json({ error: 'File is attached to a post/message.' });
   try { fs.unlinkSync(path.join(UPLOAD_DIR, path.basename(m.url))); } catch {}
-  db.prepare('DELETE FROM media WHERE id = ?').run(m.id);
+  await db.run('DELETE FROM media WHERE id = $1', m.id);
   res.json({ ok: true });
 });
 

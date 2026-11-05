@@ -42,11 +42,11 @@ async function sendBrevoEmail(to, code, purpose) {
 
 // Returns { devOtp } in dev mode, { delivered } / { error } in live mode.
 async function issueOtp(contact, purpose) {
-  db.prepare('DELETE FROM otps WHERE contact = ? AND purpose = ?').run(contact, purpose);
+  await db.run('DELETE FROM otps WHERE contact = $1 AND purpose = $2', contact, purpose);
   const code = newOtpCode();
   const expires = new Date(Date.now() + OTP_TTL_MIN * 60000).toISOString();
-  db.prepare('INSERT INTO otps (contact, code, purpose, expires_at) VALUES (?,?,?,?)')
-    .run(contact, code, purpose, expires);
+  await db.run('INSERT INTO otps (contact, code, purpose, expires_at) VALUES ($1,$2,$3,$4) RETURNING id',
+    contact, code, purpose, expires);
   if (OTP_MODE === 'dev') {
     console.log(`[naijawave][OTP:${purpose}] code for ${contact}: ${code} (dev mode — shown because no SMS/email provider is configured)`);
     return { devOtp: code };
@@ -61,23 +61,23 @@ async function issueOtp(contact, purpose) {
   return { error: 'SMS_NOT_CONFIGURED' };
 }
 
-function checkOtp(contact, purpose, code) {
-  const row = db.prepare(
-    `SELECT * FROM otps WHERE contact = ? AND purpose = ? ORDER BY id DESC LIMIT 1`).get(contact, purpose);
+async function checkOtp(contact, purpose, code) {
+  const row = await db.get(
+    `SELECT * FROM otps WHERE contact = $1 AND purpose = $2 ORDER BY id DESC LIMIT 1`, contact, purpose);
   if (!row) return { ok: false, reason: 'NO_CODE' };
   if (new Date(row.expires_at) < new Date()) return { ok: false, reason: 'EXPIRED' };
   if (row.attempts >= 5) return { ok: false, reason: 'LOCKED' };
   if (row.code !== String(code).trim()) {
-    db.prepare('UPDATE otps SET attempts = attempts + 1 WHERE id = ?').run(row.id);
+    await db.run('UPDATE otps SET attempts = attempts + 1 WHERE id = $1', row.id);
     return { ok: false, reason: 'WRONG' };
   }
-  db.prepare('DELETE FROM otps WHERE contact = ? AND purpose = ?').run(contact, purpose);
+  await db.run('DELETE FROM otps WHERE contact = $1 AND purpose = $2', contact, purpose);
   return { ok: true };
 }
 
-function findByContact(contact) {
+async function findByContact(contact) {
   const c = String(contact).trim().toLowerCase();
-  return db.prepare('SELECT * FROM users WHERE lower(email) = ? OR phone = ?').get(c, contact);
+  return db.get('SELECT * FROM users WHERE lower(email) = $1 OR phone = $2', c, contact);
 }
 
 // ---------- REGISTER ----------
@@ -97,21 +97,21 @@ router.post('/register', authLimiter, async (req, res) => {
   if (age < 13) return res.status(400).json({ error: 'You must be at least 13 to join Naija Wave.', code: 'UNDERAGE' });
 
   const takenContact = type === 'email'
-    ? db.prepare('SELECT id FROM users WHERE lower(email) = ?').get(norm)
-    : db.prepare('SELECT id FROM users WHERE phone = ?').get(norm);
+    ? await db.get('SELECT id FROM users WHERE lower(email) = $1', norm)
+    : await db.get('SELECT id FROM users WHERE phone = $1', norm);
   if (takenContact) return res.status(409).json({ error: 'This ' + type + ' is already registered. Try logging in.', code: 'CONTACT_TAKEN' });
-  if (db.prepare('SELECT id FROM users WHERE username = ?').get(uname))
+  if (await db.get('SELECT id FROM users WHERE username = $1', uname))
     return res.status(409).json({ error: 'That username is taken — try another.', code: 'USERNAME_TAKEN' });
 
   const hash = bcrypt.hashSync(password, 10);
-  const info = db.prepare(`INSERT INTO users
+  const info = await db.run(`INSERT INTO users
     (username, display_name, email, phone, contact_type, dob, password_hash)
-    VALUES (?,?,?,?,?,?,?)`).run(
+    VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
     uname, dname,
     type === 'email' ? norm : null,
     type === 'phone' ? norm : null,
     type, dob, hash);
-  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(info.lastInsertRowid);
+  const user = await db.get('SELECT * FROM users WHERE id = $1', info.lastInsertRowid);
   const otp = await issueOtp(norm, 'register');
 
   res.status(201).json({
@@ -124,19 +124,19 @@ router.post('/register', authLimiter, async (req, res) => {
 });
 
 // ---------- VERIFY OTP ----------
-router.post('/verify-otp', otpVerifyLimiter, (req, res) => {
+router.post('/verify-otp', otpVerifyLimiter, async (req, res) => {
   const { contact, code } = req.body || {};
   if (!contact || !code) return res.status(400).json({ error: 'Contact and code are required.' });
   const norm = String(contact).trim();
-  const check = checkOtp(norm, 'register', code);
+  const check = await checkOtp(norm, 'register', code);
   if (!check.ok) {
     const msg = { NO_CODE: 'No code was sent to this contact — request a new one.', EXPIRED: 'That code expired — request a new one.', LOCKED: 'Too many wrong attempts — request a new code.', WRONG: 'Wrong code — try again.' }[check.reason];
     return res.status(400).json({ error: msg, code: check.reason });
   }
-  const user = findByContact(norm);
+  const user = await findByContact(norm);
   if (!user) return res.status(404).json({ error: 'Account not found.' });
-  db.prepare('UPDATE users SET contact_verified = 1 WHERE id = ?').run(user.id);
-  const fresh = db.prepare('SELECT * FROM users WHERE id = ?').get(user.id);
+  await db.run('UPDATE users SET contact_verified = 1 WHERE id = $1', user.id);
+  const fresh = await db.get('SELECT * FROM users WHERE id = $1', user.id);
   res.json({ token: signToken(fresh), user: publicUser(fresh) });
 });
 
@@ -144,20 +144,20 @@ router.post('/resend-otp', resendLimiter, async (req, res) => {
   const { contact } = req.body || {};
   if (!contact) return res.status(400).json({ error: 'Contact is required.' });
   const norm = String(contact).trim();
-  const recent = db.prepare(
-    `SELECT COUNT(*) c FROM otps WHERE contact = ? AND created_at > datetime('now','-1 hour')`).get(norm).c;
-  if (recent >= 3) return res.status(429).json({ error: 'Too many codes sent — try again later.', code: 'RESEND_LIMIT' });
+  const recent = await db.get(
+    `SELECT COUNT(*)::int c FROM otps WHERE contact = $1 AND created_at > NOW() - INTERVAL '1 hour'`, norm);
+  if (recent.c >= 3) return res.status(429).json({ error: 'Too many codes sent — try again later.', code: 'RESEND_LIMIT' });
   const otp = await issueOtp(norm, 'register');
   res.json({ otp_sent_to: maskContact(norm, norm.includes('@') ? 'email' : 'phone'), ...(otp.devOtp ? { dev_otp: otp.devOtp } : {}), ...(otp.error ? { otp_error: otp.error } : {}) });
 });
 
 // ---------- LOGIN ----------
-router.post('/login', authLimiter, (req, res) => {
+router.post('/login', authLimiter, async (req, res) => {
   const { contact, password } = req.body || {};
   if (!contact || !password) return res.status(400).json({ error: 'Contact and password are required.' });
   let norm = String(contact).trim();
   if (!norm.includes('@')) norm = normalizeContact(norm, 'phone');
-  const user = findByContact(norm);
+  const user = await findByContact(norm);
   if (!user || !bcrypt.compareSync(password, user.password_hash))
     return res.status(401).json({ error: 'Wrong contact or password.', code: 'INVALID_CREDENTIALS' });
   if (!user.contact_verified)
@@ -168,36 +168,36 @@ router.post('/login', authLimiter, (req, res) => {
 });
 
 // ---------- PASSWORD RECOVERY ----------
-router.post('/forgot-password', resendLimiter, (req, res) => {
+router.post('/forgot-password', resendLimiter, async (req, res) => {
   const { contact } = req.body || {};
   if (!contact) return res.status(400).json({ error: 'Contact is required.' });
   let norm = String(contact).trim();
   if (!norm.includes('@')) norm = normalizeContact(norm, 'phone');
-  const user = findByContact(norm);
+  const user = await findByContact(norm);
   // Always respond OK (don't leak which contacts exist), but only send if user exists.
   if (user) issueOtp(norm, 'reset').catch(() => {});
   res.json({ ok: true, note: 'If an account exists for this contact, a reset code was sent.' ,
     ...(OTP_MODE === 'dev' && user ? { dev_hint: 'Dev mode: check the server console for the code.' } : {}) });
 });
 
-router.post('/reset-password', otpVerifyLimiter, (req, res) => {
+router.post('/reset-password', otpVerifyLimiter, async (req, res) => {
   const { contact, code, password } = req.body || {};
   if (!password || password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters.', code: 'WEAK_PASSWORD' });
   let norm = String(contact || '').trim();
   if (!norm.includes('@')) norm = normalizeContact(norm, 'phone');
-  const check = checkOtp(norm, 'reset', code);
+  const check = await checkOtp(norm, 'reset', code);
   if (!check.ok) return res.status(400).json({ error: 'Invalid or expired reset code.', code: check.reason });
-  const user = findByContact(norm);
+  const user = await findByContact(norm);
   if (!user) return res.status(404).json({ error: 'Account not found.' });
-  db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(bcrypt.hashSync(password, 10), user.id);
+  await db.run('UPDATE users SET password_hash = $1 WHERE id = $2', bcrypt.hashSync(password, 10), user.id);
   res.json({ ok: true });
 });
 
 // ---------- ME / LOGOUT ----------
-router.get('/me', authRequired, (req, res) => {
+router.get('/me', authRequired, async (req, res) => {
   const u = req.user;
-  const app = db.prepare(`SELECT id, category, status, note, created_at FROM verification_apps
-                          WHERE user_id = ? ORDER BY id DESC LIMIT 1`).get(u.id);
+  const app = await db.get(`SELECT id, category, status, note, created_at FROM verification_apps
+                          WHERE user_id = $1 ORDER BY id DESC LIMIT 1`, u.id);
   res.json({
     user: {
       ...publicUser(u),

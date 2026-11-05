@@ -58,9 +58,9 @@ app.use('/api/admin', require('./routes/admin'));
 app.use('/api/calls', require('./routes/calls'));
 
 // public announcements feed
-app.get('/api/announcements', authOptional, (req, res) => {
-  const rows = db.prepare(`SELECT a.*, u.username, u.display_name, u.avatar_url, u.verification
-    FROM announcements a JOIN users u ON u.id = a.author_id ORDER BY a.id DESC LIMIT 20`).all();
+app.get('/api/announcements', authOptional, async (req, res) => {
+  const rows = await db.all(`SELECT a.*, u.username, u.display_name, u.avatar_url, u.verification
+    FROM announcements a JOIN users u ON u.id = a.author_id ORDER BY a.id DESC LIMIT 20`);
   res.json({ items: rows.map(a => ({ id: a.id, text: a.text, created_at: a.created_at, author: publicUser(a) })) });
 });
 
