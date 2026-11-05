@@ -59,6 +59,7 @@ app.use('/api/notifications', require('./routes/notifications'));
 app.use('/api/verification', require('./routes/verification'));
 app.use('/api/admin', require('./routes/admin'));
 app.use('/api/calls', require('./routes/calls'));
+app.use('/api/push', require('./routes/push'));
 
 // public announcements feed
 app.get('/api/announcements', authOptional, async (req, res) => {
@@ -97,6 +98,8 @@ app.use((err, req, res, next) => {
 
 const server = http.createServer(app);
 require('./socket/index').initSocket(server);
+// Web Push (call alerts): generate VAPID keys on first boot if missing.
+require('./utils/push').initPush().catch(() => {});
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {

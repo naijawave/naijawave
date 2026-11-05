@@ -129,14 +129,17 @@ function wireGlobal(){
 /* ---------- boot ---------- */
 async function boot(){
   wireGlobal();
+  // PWA service worker (call alerts) — register early, it is harmless if push is off.
+  import('./push.js?v=2').then(m => m.registerSW()).catch(() => {});
   if(auth.loggedIn()){
     await auth.refreshMe().catch(()=>{});
     sock.connect();
     await checkAdmin();
+    import('./push.js?v=2').then(m => m.ensurePushSubscribed()).catch(() => {});
   }
   buildChrome();
   auth.onAuthChange(async logged=>{
-    if(logged){ await auth.refreshMe().catch(()=>{}); await checkAdmin(); }
+    if(logged){ await auth.refreshMe().catch(()=>{}); await checkAdmin(); import('./push.js?v=2').then(m => m.ensurePushSubscribed()).catch(() => {}); }
     else isAdmin=false;
     buildChrome();
     if(logged) refreshBadges();

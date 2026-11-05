@@ -4,6 +4,7 @@ const db = require('../db');
 const { JWT_SECRET } = require('../middleware/auth');
 const realtime = require('../realtime');
 const { notify } = require('../utils/notify');
+const { sendPushToUser } = require('../utils/push');
 const { serializeMessage } = require('../routes/conversations');
 
 // simple per-socket rate guard: { socketId: { event: [timestamps] } }
@@ -161,6 +162,15 @@ function initSocket(server) {
         await db.run(`INSERT INTO calls (caller_id, callee_id, kind, status, ended_at) VALUES ($1,$2,$3,'missed',NOW()) RETURNING id`,
           me, toId, kind);
         notify(toId, 'call_missed', { actorId: me, text: `Missed ${kind} call from @${socket.user.username}.` }).catch(() => {});
+        // They are not in the app — buzz their phone with a push alert so
+        // they can tap it and call back. (A website cannot ring like a
+        // native phone call; this is the closest it gets.)
+        sendPushToUser(toId, {
+          title: `📞 Incoming ${kind} call`,
+          body: `@${socket.user.username} is calling you on Naija Wave — tap to open the app and call back.`,
+          url: '/#/messages',
+          tag: 'call-' + call_id,
+        }).catch(() => {});
         return ack?.({ error: 'OFFLINE' });
       }
       io.to(roomOf(toId)).emit('call:incoming', {

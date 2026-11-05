@@ -33,10 +33,25 @@ export function toast(msg, kind=''){
 }
 
 export function linkify(text){
-  return esc(text)
+  // TikTok videos -> embedded player (official iframe player, no script needed).
+  // Pull the URLs out first so the generic linkifier below doesn't wrap the
+  // iframe's own src URL in an <a> tag. Short links (vm.tiktok.com) are
+  // resolved to full URLs when the post is created (server side).
+  const tiktoks = [];
+  let t = String(text ?? '');
+  t = t.replace(/https?:\/\/(?:www\.)?tiktok\.com\/@[\w.-]+\/video\/(\d+)[^\s]*/g, (m, id) => {
+    tiktoks.push(id);
+    return '\u0000TIKTOK' + (tiktoks.length - 1) + '\u0000';
+  });
+  let html = esc(t)
     .replace(/(https?:\/\/[^\s<]+)/g,'<a href="$1" target="_blank" rel="noopener">$1</a>')
     .replace(/(^|\s)#([\p{L}\p{N}_]+)/gu,'$1<a href="#/tag/$2">#$2</a>')
     .replace(/(^|\s)@([a-z0-9_.]+)/g,'$1<a href="#/profile/$2">@$2</a>');
+  tiktoks.forEach((id, i) => {
+    html = html.split('\u0000TIKTOK' + i + '\u0000').join(
+      '<span class="tiktok-embed-wrap"><iframe src="https://www.tiktok.com/player/v1/' + id + '" title="TikTok video" frameborder="0" allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture" allowfullscreen loading="lazy"></iframe></span>');
+  });
+  return html;
 }
 
 /* ---------- verification ticks (DESIGN.md) ---------- */

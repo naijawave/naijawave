@@ -4,3 +4,5 @@ uploads/
 .env
 *.log
 naija-wave-tour.mp4
+founder-token
+.secrets/

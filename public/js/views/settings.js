@@ -11,6 +11,10 @@ export async function render(view){
       <div class="setrow"><div class="sinfo"><div class="st">Read receipts</div><div class="sd">Let senders know you've read their messages</div></div>
         <label class="switch"><input type="checkbox" id="sRead"><span class="tr"></span></label></div>
     </div>
+    <div class="card mb"><h3 class="sect" style="font-size:15px">📞 Call alerts</h3>
+      <div class="setrow"><div class="sinfo"><div class="st">Buzz my phone when someone calls</div><div class="sd">Works even when Naija Wave is closed. On iPhone, add Naija Wave to your Home Screen first (Share → Add to Home Screen), then turn this on.</div></div>
+        <label class="switch"><input type="checkbox" id="sCallAlerts"><span class="tr"></span></label></div>
+      <p class="small muted" id="sCallNote"></p></div>
     <div class="card mb"><h3 class="sect" style="font-size:15px">🔔 Notifications</h3><div id="sNotif">${skelPosts(1)}</div></div>
     <div class="card mb"><h3 class="sect" style="font-size:15px">🚫 Blocked & muted</h3>
       <div style="display:flex;gap:10px"><button class="btn ghost small" id="sBlocked">Blocked users</button>
@@ -45,6 +49,32 @@ export async function render(view){
       toast('Saved.','ok');
     }catch(err){ toast(err.message,'err'); }
   }
+
+  // call alerts (Web Push) — buzzes the phone when someone calls, even with the app closed
+  const caToggle = view.querySelector('#sCallAlerts');
+  const caNote = view.querySelector('#sCallNote');
+  try {
+    const push = await import('../push.js?v=2');
+    if (!push.pushSupported()) {
+      caToggle.disabled = true;
+      caNote.textContent = 'Push alerts are not supported on this browser.';
+    } else {
+      caToggle.checked = await push.isPushEnabled();
+      caNote.textContent = caToggle.checked
+        ? 'On — this phone will buzz when someone calls you.'
+        : 'Off — turn it on and your phone will buzz for incoming calls, even with the app closed.';
+      caToggle.onchange = async () => {
+        caToggle.disabled = true;
+        const ok = caToggle.checked ? await push.enableCallAlerts() : await push.disableCallAlerts();
+        const now = await push.isPushEnabled();
+        caToggle.checked = now;
+        caNote.textContent = now
+          ? 'On — this phone will buzz when someone calls you.'
+          : 'Off — turn it on and your phone will buzz for incoming calls, even with the app closed.';
+        caToggle.disabled = false;
+      };
+    }
+  } catch { caToggle.disabled = true; caNote.textContent = 'Call alerts are unavailable right now.'; }
 
   // notification prefs
   const nMount=view.querySelector('#sNotif');

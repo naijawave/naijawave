@@ -6,6 +6,7 @@ const { postLimiter } = require('../middleware/rateLimit');
 const { extractHashtags, extractMentions, escLike, publicUser } = require('../utils/helpers');
 const { serializePost, visibilityWhere, spliceWhere } = require('../utils/serialize');
 const { notify } = require('../utils/notify');
+const { resolveTikTokLinks } = require('../utils/tiktok');
 
 const router = express.Router();
 const feedRouter = express.Router();   // mounted at /api  -> /api/feed/*, /api/explore
@@ -17,7 +18,10 @@ function pageOf(req) { return Math.max(1, parseInt(req.query.page) || 1); }
 // ---------- CREATE ----------
 router.post('/', authRequired, postLimiter, async (req, res) => {
   const { text = '', media_ids = [], poll, location, section = 'feed', visibility = 'public' } = req.body || {};
-  const clean = String(text).slice(0, 500).trim();
+  // Resolve TikTok short links (vm.tiktok.com) to full video URLs so they
+  // embed as players. Best-effort — failures leave the text untouched.
+  const resolvedText = await resolveTikTokLinks(String(text)).catch(() => String(text));
+  const clean = resolvedText.slice(0, 500).trim();
   const mediaIds = Array.isArray(media_ids) ? media_ids.slice(0, 4).map(Number).filter(Boolean) : [];
   if (!clean && !mediaIds.length && !poll) return res.status(400).json({ error: 'Write something or add media first.' });
   if (!['feed', 'buzz'].includes(section)) return res.status(400).json({ error: 'Invalid section.' });
