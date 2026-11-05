@@ -4,10 +4,24 @@ import { toast, esc, av } from './ui.js';
 
 let iceServers=[{urls:'stun:stun.l.google.com:19302'}];
 let cur=null; // active call session
+// Diagnostic state for the call screen (helps see where a call breaks).
+let diag={relay:false,track:false};
 
 async function getIce(){
   try{ const d=await api.get('/api/config?_='+Date.now()); if(d.ice_servers?.length) iceServers=d.ice_servers; }
   catch{}
+}
+// Update the small status line on the call screen (if it exists).
+function setDiag(){
+  const el=document.getElementById('cDiag');
+  if(!el) return;
+  const pc=cur?.pc;
+  el.textContent=`ICE: ${pc?.iceConnectionState||'?'} · Net: ${pc?.connectionState||'?'} · Relay: ${diag.relay?'yes':'no'} · Track: ${diag.track?'yes':'no'}`;
+}
+function attachDiag(pc){
+  pc.onicecandidate=e=>{ if(e.candidate){ if(/ relay /.test(e.candidate.candidate)) diag.relay=true; setDiag(); } };
+  pc.oniceconnectionstatechange=()=>setDiag();
+  pc.onconnectionstatechange=()=>setDiag();
 }
 const uuid=()=> (crypto.randomUUID?crypto.randomUUID():'c'+Date.now()+Math.random().toString(16).slice(2));
 
@@ -38,12 +52,14 @@ export async function startCall(other, kind='voice'){
   catch(e){ toast('Could not access microphone/camera ('+(e.name||'blocked')+'). Check permissions.','err'); return; }
 
   const call_id=uuid();
+  diag={relay:false,track:false};
   const pc=new RTCPeerConnection({iceServers});
   // Attach handlers BEFORE createOffer/setLocalDescription — ICE gathering
   // starts there, and candidates gathered before the handler is set are lost.
   pc.onicecandidate=e=>{ if(e.candidate) sock.emit('call:ice',{call_id,to_user_id:other.id,candidate:e.candidate}); };
-  pc.ontrack=e=>{ const v=document.getElementById('cvRemote')||document.getElementById('cvRemoteAudio'); if(v){ v.srcObject=e.streams[0]; v.play?.().catch(()=>{}); } };
+  pc.ontrack=e=>{ diag.track=true; setDiag(); const v=document.getElementById('cvRemote')||document.getElementById('cvRemoteAudio'); if(v){ v.srcObject=e.streams[0]; v.play?.().catch(()=>{}); } };
   pc.onconnectionstatechange=()=>{ if(pc.connectionState==='failed') callFail('Connection failed — check your network.'); };
+  attachDiag(pc);
   stream.getTracks().forEach(t=>pc.addTrack(t,stream));
   const offer=await pc.createOffer(); await pc.setLocalDescription(offer);
 
@@ -92,6 +108,7 @@ export function handleIncoming({from_user, kind, sdp_offer, call_id}){
       <button class="cbtn accept" id="cAcc" aria-label="Accept"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 2 .7 2.9a2 2 0 0 1-.5 2.1L8.1 10a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.9.5 2.9.7a2 2 0 0 1 1.6 2z"/></svg></button>
     </div>`;
   document.body.appendChild(ov);
+  setDiag(); // show the current ICE/connection state right away
   ring(ov);
   ov.querySelector('#cDec').onclick=()=>{ sock.emit('call:reject',{call_id,to_user_id:cur.other.id}); clearTimeout(cur.ringT); ov.remove(); cur=null; };
   ov.querySelector('#cAcc').onclick=()=>acceptCall(ov);
@@ -130,12 +147,14 @@ async function acceptCall(ov){
   let stream;
   try{ const m=await getCallMedia(cur.kind); stream=m.stream; cur.kind=m.kind; }
   catch(e){ toast('Could not access microphone/camera ('+(e.name||'blocked')+').','err'); sock.emit('call:reject',{call_id:cur.call_id,to_user_id:cur.other.id,reason:'media'}); ov.remove(); cur=null; return; }
+  diag={relay:false,track:false};
   const pc=new RTCPeerConnection({iceServers});
   // Attach handlers BEFORE setRemoteDescription — the remote track / ICE can
   // arrive as soon as the descriptions are set.
   pc.onicecandidate=e=>{ if(e.candidate) sock.emit('call:ice',{call_id:cur.call_id,to_user_id:cur.other.id,candidate:e.candidate}); };
-  pc.ontrack=e=>{ const v=document.getElementById('cvRemote')||document.getElementById('cvRemoteAudio'); if(v){ v.srcObject=e.streams[0]; v.play?.().catch(()=>{}); } };
+  pc.ontrack=e=>{ diag.track=true; setDiag(); const v=document.getElementById('cvRemote')||document.getElementById('cvRemoteAudio'); if(v){ v.srcObject=e.streams[0]; v.play?.().catch(()=>{}); } };
   pc.onconnectionstatechange=()=>{ if(pc.connectionState==='failed') callFail('Connection failed — check your network.'); };
+  attachDiag(pc);
   stream.getTracks().forEach(t=>pc.addTrack(t,stream));
   await pc.setRemoteDescription(new RTCSessionDescription(cur.offer));
   const answer=await pc.createAnswer(); await pc.setLocalDescription(answer);
@@ -188,6 +207,7 @@ function showCallingUI(other,kind,connected){
       <div class="callname">${esc(other.display_name)}</div>
       <div class="callkind" id="cState">${connected?(kind==='video'?'Video call':'Voice call'):'Ringing...'}</div>
       <div class="calldur" id="cDur">0:00</div>
+      <div class="calldiag" id="cDiag" style="font-size:11px;opacity:.65;margin-top:4px">ICE: … · Net: … · Relay: … · Track: …</div>
       <div class="callbtns">
         <button class="cbtn" id="cMute" aria-label="Mute"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><path d="M12 19v4"/></svg><small>Mute</small></button>
         ${video?`<button class="cbtn" id="cCam" aria-label="Camera"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg><small>Camera</small></button>
@@ -197,6 +217,7 @@ function showCallingUI(other,kind,connected){
       </div>
     </div>`;
   document.body.appendChild(ov);
+  setDiag(); // show the current ICE/connection state right away
   // Speaker routing (setSinkId) is missing on older iOS Safari and present-
   // but-broken on newer iOS — it exists yet throws when called. iOS routes
   // call audio itself anyway (earpiece for voice, speaker for video), so
