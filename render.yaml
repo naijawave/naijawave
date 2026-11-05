@@ -22,10 +22,6 @@ services:
         value: production
       - key: OTP_MODE
         value: dev
-      - key: DB_PATH
-        value: /app/data/naijawave.db
-      - key: UPLOAD_DIR
-        value: /app/data/uploads
       - key: SETUP_KEY
         generateValue: true
       - key: JWT_SECRET
