@@ -12,13 +12,30 @@ async function getIce(){
 const uuid=()=> (crypto.randomUUID?crypto.randomUUID():'c'+Date.now()+Math.random().toString(16).slice(2));
 
 /* ================= caller ================= */
+// Get mic (+camera for video). If the camera is blocked/missing, fall back
+// to audio-only so the call still works instead of failing outright.
+async function getCallMedia(kind){
+  const wantVideo=kind==='video';
+  try{
+    return { stream: await navigator.mediaDevices.getUserMedia({audio:true, video: wantVideo?{facingMode:{ideal:'user'}}:false}), kind };
+  }catch(e){
+    if(wantVideo){
+      try{
+        const s=await navigator.mediaDevices.getUserMedia({audio:true, video:false});
+        toast('Camera unavailable ('+(e.name||'blocked')+') — continuing as voice call.','err');
+        return { stream: s, kind:'voice' };
+      }catch(e2){ throw e2; }
+    }
+    throw e;
+  }
+}
 export async function startCall(other, kind='voice'){
   if(cur){ toast('You are already on a call.','err'); return; }
   wireCalls();
   await getIce();
   let stream;
-  try{ stream=await navigator.mediaDevices.getUserMedia({audio:true,video:kind==='video'?{facingMode:'user'}:false}); }
-  catch{ toast('Could not access microphone/camera. Check permissions.','err'); return; }
+  try{ ({ stream, kind } = await getCallMedia(kind)); }
+  catch(e){ toast('Could not access microphone/camera ('+(e.name||'blocked')+'). Check permissions.','err'); return; }
 
   const call_id=uuid();
   const pc=new RTCPeerConnection({iceServers});
@@ -109,8 +126,8 @@ async function acceptCall(ov){
   clearTimeout(cur.ringT); clearInterval(cur.ringIv);
   await getIce();
   let stream;
-  try{ stream=await navigator.mediaDevices.getUserMedia({audio:true,video:cur.kind==='video'?{facingMode:'user'}:false}); }
-  catch{ toast('Could not access microphone/camera.','err'); sock.emit('call:reject',{call_id:cur.call_id,to_user_id:cur.other.id,reason:'media'}); ov.remove(); cur=null; return; }
+  try{ const m=await getCallMedia(cur.kind); stream=m.stream; cur.kind=m.kind; }
+  catch(e){ toast('Could not access microphone/camera ('+(e.name||'blocked')+').','err'); sock.emit('call:reject',{call_id:cur.call_id,to_user_id:cur.other.id,reason:'media'}); ov.remove(); cur=null; return; }
   const pc=new RTCPeerConnection({iceServers});
   stream.getTracks().forEach(t=>pc.addTrack(t,stream));
   await pc.setRemoteDescription(new RTCSessionDescription(cur.offer));
