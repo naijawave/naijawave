@@ -20,8 +20,6 @@ services:
         value: 24
       - key: NODE_ENV
         value: production
-      - key: OTP_MODE
-        value: dev
       - key: SETUP_KEY
         generateValue: true
       - key: JWT_SECRET

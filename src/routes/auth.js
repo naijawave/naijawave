@@ -10,7 +10,38 @@ const router = express.Router();
 const OTP_MODE = process.env.OTP_MODE || 'dev'; // 'dev' | 'live'
 const OTP_TTL_MIN = 10;
 
-function issueOtp(contact, purpose) {
+// Brevo transactional email (free tier). Env: BREVO_API_KEY, BREVO_SENDER_EMAIL
+// (the sender address must be verified in Brevo: Settings → Senders).
+async function sendBrevoEmail(to, code, purpose) {
+  const key = process.env.BREVO_API_KEY;
+  const senderEmail = process.env.BREVO_SENDER_EMAIL;
+  if (!key || !senderEmail) return { ok: false, reason: 'NOT_CONFIGURED' };
+  try {
+    const res = await fetch('https://api.brevo.com/v3/smtp/email', {
+      method: 'POST',
+      headers: { 'api-key': key, 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({
+        sender: { name: 'Naija Wave', email: senderEmail },
+        to: [{ email: to }],
+        subject: 'Your Naija Wave verification code',
+        htmlContent: `<p>Your Naija Wave verification code is:</p><h2 style="letter-spacing:4px">${code}</h2><p>It expires in 10 minutes. If you didn't request this, ignore this email.</p>`,
+        textContent: `Your Naija Wave verification code is: ${code}. It expires in 10 minutes.`,
+      }),
+    });
+    if (!res.ok) {
+      const t = await res.text().catch(() => '');
+      console.log(`[naijawave][OTP:${purpose}] Brevo send failed (${res.status}): ${t.slice(0, 300)}`);
+      return { ok: false, reason: 'PROVIDER_ERROR' };
+    }
+    return { ok: true };
+  } catch (e) {
+    console.log(`[naijawave][OTP:${purpose}] Brevo send error: ${e.message}`);
+    return { ok: false, reason: 'PROVIDER_ERROR' };
+  }
+}
+
+// Returns { devOtp } in dev mode, { delivered } / { error } in live mode.
+async function issueOtp(contact, purpose) {
   db.prepare('DELETE FROM otps WHERE contact = ? AND purpose = ?').run(contact, purpose);
   const code = newOtpCode();
   const expires = new Date(Date.now() + OTP_TTL_MIN * 60000).toISOString();
@@ -18,11 +49,16 @@ function issueOtp(contact, purpose) {
     .run(contact, code, purpose, expires);
   if (OTP_MODE === 'dev') {
     console.log(`[naijawave][OTP:${purpose}] code for ${contact}: ${code} (dev mode — shown because no SMS/email provider is configured)`);
-    return code;
+    return { devOtp: code };
   }
-  // LIVE mode: plug in your provider here (Termii for Nigerian SMS, or SMTP for email).
-  console.log(`[naijawave][OTP:${purpose}] LIVE mode: provider not configured — cannot deliver to ${contact}. Set up Termii/SMTP (see docs/DEPLOYMENT.md).`);
-  return null;
+  if (contact.includes('@')) {
+    const r = await sendBrevoEmail(contact, code, purpose);
+    if (r.ok) return { delivered: true };
+    return { error: r.reason };
+  }
+  // LIVE mode + phone: SMS provider (Termii) not configured yet.
+  console.log(`[naijawave][OTP:${purpose}] LIVE mode: SMS provider not configured — cannot deliver to ${contact}.`);
+  return { error: 'SMS_NOT_CONFIGURED' };
 }
 
 function checkOtp(contact, purpose, code) {
@@ -45,7 +81,7 @@ function findByContact(contact) {
 }
 
 // ---------- REGISTER ----------
-router.post('/register', authLimiter, (req, res) => {
+router.post('/register', authLimiter, async (req, res) => {
   const { contact, contact_type, password, username, display_name, dob } = req.body || {};
   const type = contact_type === 'phone' ? 'phone' : 'email';
   const norm = normalizeContact(contact, type);
@@ -76,13 +112,14 @@ router.post('/register', authLimiter, (req, res) => {
     type === 'phone' ? norm : null,
     type, dob, hash);
   const user = db.prepare('SELECT * FROM users WHERE id = ?').get(info.lastInsertRowid);
-  const devOtp = issueOtp(norm, 'register');
+  const otp = await issueOtp(norm, 'register');
 
   res.status(201).json({
     user: publicUser(user),
     otp_sent_to: maskContact(norm, type),
     contact: norm,
-    ...(devOtp ? { dev_otp: devOtp, dev_note: 'DEV MODE: no SMS/email provider configured — this code is shown for testing. See docs/DEPLOYMENT.md.' } : {}),
+    ...(otp.devOtp ? { dev_otp: otp.devOtp, dev_note: 'DEV MODE: no SMS/email provider configured — this code is shown for testing. See docs/DEPLOYMENT.md.' } : {}),
+    ...(otp.error ? { otp_error: otp.error } : {}),
   });
 });
 
@@ -103,15 +140,15 @@ router.post('/verify-otp', otpVerifyLimiter, (req, res) => {
   res.json({ token: signToken(fresh), user: publicUser(fresh) });
 });
 
-router.post('/resend-otp', resendLimiter, (req, res) => {
+router.post('/resend-otp', resendLimiter, async (req, res) => {
   const { contact } = req.body || {};
   if (!contact) return res.status(400).json({ error: 'Contact is required.' });
   const norm = String(contact).trim();
   const recent = db.prepare(
     `SELECT COUNT(*) c FROM otps WHERE contact = ? AND created_at > datetime('now','-1 hour')`).get(norm).c;
   if (recent >= 3) return res.status(429).json({ error: 'Too many codes sent — try again later.', code: 'RESEND_LIMIT' });
-  const devOtp = issueOtp(norm, 'register');
-  res.json({ otp_sent_to: maskContact(norm, norm.includes('@') ? 'email' : 'phone'), ...(devOtp ? { dev_otp: devOtp } : {}) });
+  const otp = await issueOtp(norm, 'register');
+  res.json({ otp_sent_to: maskContact(norm, norm.includes('@') ? 'email' : 'phone'), ...(otp.devOtp ? { dev_otp: otp.devOtp } : {}), ...(otp.error ? { otp_error: otp.error } : {}) });
 });
 
 // ---------- LOGIN ----------
@@ -138,7 +175,7 @@ router.post('/forgot-password', resendLimiter, (req, res) => {
   if (!norm.includes('@')) norm = normalizeContact(norm, 'phone');
   const user = findByContact(norm);
   // Always respond OK (don't leak which contacts exist), but only send if user exists.
-  if (user) issueOtp(norm, 'reset');
+  if (user) issueOtp(norm, 'reset').catch(() => {});
   res.json({ ok: true, note: 'If an account exists for this contact, a reset code was sent.' ,
     ...(OTP_MODE === 'dev' && user ? { dev_hint: 'Dev mode: check the server console for the code.' } : {}) });
 });
