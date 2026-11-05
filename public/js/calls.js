@@ -79,9 +79,22 @@ export function handleIncoming({from_user, kind, sdp_offer, call_id}){
   },30000);
 }
 function ring(ov){
-  try{ const a=new AudioContext(); const o=a.createOscillator(), g=a.createGain();
-    o.connect(g); g.connect(a.destination); o.frequency.value=440; g.gain.value=0.06;
-    o.start(); const iv=setInterval(()=>{ try{o.stop()}catch{}; clearInterval(iv); try{a.close()}catch{} },900);
+  // Proper repeating ringtone (beep-beep every 2s) until answered/declined/timeout.
+  try{
+    const a=new AudioContext(); a.resume&&a.resume().catch(()=>{});
+    const play=()=>{ try{
+      const o=a.createOscillator(), g=a.createGain();
+      o.connect(g); g.connect(a.destination); o.frequency.value=440;
+      const t=a.currentTime;
+      g.gain.setValueAtTime(0.0001,t);
+      g.gain.exponentialRampToValueAtTime(0.07,t+0.05);
+      g.gain.exponentialRampToValueAtTime(0.0001,t+0.4);
+      g.gain.exponentialRampToValueAtTime(0.07,t+0.55);
+      g.gain.exponentialRampToValueAtTime(0.0001,t+0.9);
+      o.start(t); o.stop(t+1);
+    }catch{} };
+    play();
+    const iv=setInterval(()=>{ if(!document.getElementById('callOv')){ clearInterval(iv); try{a.close()}catch{} return; } play(); },2000);
     cur.ringIv=iv;
   }catch{}
 }
