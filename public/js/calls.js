@@ -11,6 +11,12 @@ let playRetryT=null;
 function ensureRemotePlays(){
   const v=document.getElementById('cvRemote')||document.getElementById('cvRemoteAudio');
   if(!v) return;
+  if(webAudioOn){
+    // Web Audio is playing the sound; just keep the video picture playing
+    // (stay muted so the sound doesn't double).
+    if(v.tagName==='VIDEO'){ v.muted=true; if(v.paused) v.play?.().catch(()=>{}); }
+    return;
+  }
   v.muted=false; v.volume=1;
   if(v.paused){ v.play?.().catch(()=>{}); }
 }
@@ -22,7 +28,7 @@ function stopPlayRetry(){ if(playRetryT){ clearInterval(playRetryT); playRetryT=
    stream. Routing the remote track through an AudioContext plays it as
    media, which is how you get it out loud. Also feeds a live level
    meter so you can SEE the other person's voice arriving. */
-let actx=null, remoteAnalyser=null, levelT=null;
+let actx=null, remoteAnalyser=null, levelT=null, webAudioOn=false;
 function getAudioCtx(){
   if(!actx){ try{ actx=new (window.AudioContext||window.webkitAudioContext)(); }catch{ actx=null; } }
   if(actx && actx.state==='suspended') actx.resume().catch(()=>{});
@@ -38,9 +44,10 @@ function routeRemoteAudio(stream){
     // Mute the element so the same audio doesn't play twice.
     const v=document.getElementById('cvRemote')||document.getElementById('cvRemoteAudio');
     if(v) v.muted=true;
+    webAudioOn=true;
     startLevelMeter();
     return true;
-  }catch{ return false; }
+  }catch{ webAudioOn=false; return false; }
 }
 function startLevelMeter(){
   stopLevelMeter();
@@ -111,7 +118,7 @@ export async function startCall(other, kind='voice'){
   // Attach handlers BEFORE createOffer/setLocalDescription — ICE gathering
   // starts there, and candidates gathered before the handler is set are lost.
   pc.onicecandidate=e=>{ if(e.candidate){ if(/ relay /.test(e.candidate.candidate)) diag.relay=true; setDiag(); sock.emit('call:ice',{call_id,to_user_id:other.id,candidate:e.candidate}); } };
-  pc.ontrack=e=>{ diag.track=true; setDiag(); const stream=e.streams[0]; const v=document.getElementById('cvRemote')||document.getElementById('cvRemoteAudio'); if(v){ v.srcObject=stream; } if(!routeRemoteAudio(stream)) ensureRemotePlays(); };
+  pc.ontrack=e=>{ diag.track=true; setDiag(); const stream=e.streams[0]; const v=document.getElementById('cvRemote')||document.getElementById('cvRemoteAudio'); if(v){ if(v.tagName==='VIDEO'){ v.muted=true; } v.srcObject=stream; v.play?.().catch(()=>{}); } if(!routeRemoteAudio(stream)) ensureRemotePlays(); };
   pc.onconnectionstatechange=()=>{ setDiag(); if(pc.connectionState==='failed') callFail('Connection failed — check your network.'); };
   attachDiag(pc);
   stream.getTracks().forEach(t=>pc.addTrack(t,stream));
@@ -205,7 +212,7 @@ async function acceptCall(ov){
   // Attach handlers BEFORE setRemoteDescription — the remote track / ICE can
   // arrive as soon as the descriptions are set.
   pc.onicecandidate=e=>{ if(e.candidate){ if(/ relay /.test(e.candidate.candidate)) diag.relay=true; setDiag(); sock.emit('call:ice',{call_id:cur.call_id,to_user_id:cur.other.id,candidate:e.candidate}); } };
-  pc.ontrack=e=>{ diag.track=true; setDiag(); const stream=e.streams[0]; const v=document.getElementById('cvRemote')||document.getElementById('cvRemoteAudio'); if(v){ v.srcObject=stream; } if(!routeRemoteAudio(stream)) ensureRemotePlays(); };
+  pc.ontrack=e=>{ diag.track=true; setDiag(); const stream=e.streams[0]; const v=document.getElementById('cvRemote')||document.getElementById('cvRemoteAudio'); if(v){ if(v.tagName==='VIDEO'){ v.muted=true; } v.srcObject=stream; v.play?.().catch(()=>{}); } if(!routeRemoteAudio(stream)) ensureRemotePlays(); };
   pc.onconnectionstatechange=()=>{ setDiag(); if(pc.connectionState==='failed') callFail('Connection failed — check your network.'); };
   attachDiag(pc);
   stream.getTracks().forEach(t=>pc.addTrack(t,stream));
@@ -283,7 +290,7 @@ function showCallingUI(other,kind,connected){
   // keep it on iPhones now; only hide it if there's no remote element.
   const remoteEl=ov.querySelector('#cvRemote')||ov.querySelector('#cvRemoteAudio');
   if(!remoteEl) ov.querySelector('#cSpk')?.remove();
-  if(cur?.stream&&video){ const lv=ov.querySelector('#cvLocal'); if(lv) lv.srcObject=cur.stream; }
+  if(cur?.stream&&video){ const lv=ov.querySelector('#cvLocal'); if(lv){ lv.srcObject=cur.stream; lv.play?.().catch(()=>{}); } }
   // duration ticker
   const durEl=ov.querySelector('#cDur'), stEl=ov.querySelector('#cState');
   cur.durT=setInterval(()=>{
@@ -334,7 +341,7 @@ function logCall(status,duration_sec){
   api.post('/api/calls/log',{other_user_id:cur.other.id,kind:cur.kind,duration_sec,status}).catch(()=>{});
 }
 function endCall(silent){
-  stopPlayRetry(); stopLevelMeter();
+  stopPlayRetry(); stopLevelMeter(); webAudioOn=false;
   if(cur){
     clearTimeout(cur.noAnsT); clearTimeout(cur.ringT); clearInterval(cur.ringIv); clearInterval(cur.durT);
     if(!silent&&cur.role==='caller'&&!cur.accepted) sock.emit('call:end',{call_id:cur.call_id,to_user_id:cur.other.id});
