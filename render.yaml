@@ -25,3 +25,13 @@ services:
         generateValue: true
       - key: JWT_SECRET
         generateValue: true
+      # TURN relay (free public OpenRelay demo server) — lets calls connect
+      # when the two phones can't reach each other directly (strict NAT /
+      # Wi-Fi isolation). No signup. Later, swap for a private free Metered
+      # account (50 GB/mo) by changing these three values.
+      - key: TURN_URL
+        value: turn:openrelay.metered.ca:80,turn:openrelay.metered.ca:443,turns:openrelay.metered.ca:443
+      - key: TURN_USER
+        value: openrelayproject
+      - key: TURN_PASS
+        value: openrelayproject

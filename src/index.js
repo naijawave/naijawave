@@ -26,11 +26,12 @@ app.use('/api', generalApi);
 // ---- public config (no secrets): ICE servers for WebRTC ----
 app.get('/api/config', (req, res) => {
   const ice = [{ urls: process.env.STUN_URL || 'stun:stun.l.google.com:19302' }];
-  if (process.env.TURN_URL) ice.push({
-    urls: process.env.TURN_URL,
-    username: process.env.TURN_USER || '',
-    credential: process.env.TURN_PASS || '',
-  });
+  if (process.env.TURN_URL) {
+    // TURN_URL may be a comma-separated list — the browser tries each and
+    // uses the best working relay (UDP 80/443, or TLS 443 through firewalls).
+    const urls = process.env.TURN_URL.split(',').map(s => s.trim()).filter(Boolean);
+    ice.push({ urls, username: process.env.TURN_USER || '', credential: process.env.TURN_PASS || '' });
+  }
   res.json({ ice_servers: ice, otp_mode: process.env.OTP_MODE || 'dev', app: 'Naija Wave' });
 });
 
