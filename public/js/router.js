@@ -5,6 +5,7 @@ const routes=[
   { p:'#/welcome', v:()=>import('./views/auth.js'), pub:true },
   { p:'#/home', v:()=>import('./views/home.js') },
   { p:'#/explore', v:()=>import('./views/explore.js') },
+  { p:'#/videos', v:()=>import('./views/videos.js') },
   { p:'#/pulse', v:()=>import('./views/pulse.js') },
   { p:'#/court', v:()=>import('./views/court.js') },
   { p:'#/versus', v:()=>import('./views/versus.js') },
@@ -41,6 +42,12 @@ export function navigate(h){ location.hash=h; }
 
 export function initRouter(onRoute){
   async function render(){
+    // Alias: old #/tiktok links redirect to the Videos page (same ?v= deep link).
+    if((location.hash||'').split('?')[0]==='#/tiktok'){
+      const q=(location.hash.split('?')[1]||'');
+      location.hash='#/videos'+(q?'?'+q:'');
+      return;
+    }
     if(currentCleanup){ try{currentCleanup()}catch{}; currentCleanup=null; }
     const view=document.getElementById('view');
     let hash=location.hash||'#/home';

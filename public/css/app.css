@@ -545,3 +545,41 @@ textarea.input{resize:vertical;min-height:90px}
 /* TikTok embeds: vertical player, centred, capped at TikTok's own width. */
 .tiktok-embed-wrap{display:block;max-width:325px;margin:10px auto 2px;border-radius:14px;overflow:hidden;background:#000}
 .tiktok-embed-wrap iframe{display:block;width:100%;aspect-ratio:9/16;border:0}
+
+/* ---------- Videos (TikTok / Instagram / YouTube cards) ---------- */
+.video-badge{font-size:11px;font-weight:700;color:var(--ink2);background:var(--bg3);border:1px solid var(--line);border-radius:999px;padding:3px 9px;white-space:nowrap}
+.video-player{position:relative;display:block;max-width:420px;margin:10px auto 2px;border-radius:14px;overflow:hidden;background:#000}
+.video-player iframe{display:block;width:100%;height:100%;border:0;position:absolute;inset:0}
+.video-player .video-ph{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;min-height:280px;color:var(--ink2);font-weight:600;padding:20px;text-align:center}
+.video-player .video-ph-icon{font-size:34px}
+.video-player .video-mute{position:absolute;top:10px;right:10px;z-index:2;width:38px;height:38px;border-radius:50%;background:rgba(0,0,0,.6);color:#fff;font-size:18px;border:1px solid rgba(255,255,255,.25);cursor:pointer;display:flex;align-items:center;justify-content:center}
+.video-player .instagram-media{margin:0!important;min-width:0!important;max-width:100%!important;width:100%!important}
+.video-open{margin-top:10px;text-align:center}
+.video-card .video-player{max-width:420px}
+
+/* ---------- Global search (header on mobile, sidebar on desktop) ---------- */
+.gsearch{position:relative;flex:1;min-width:0}
+.gsearch .input{border-radius:var(--pill);padding:10px 38px 10px 16px;height:42px}
+.gsearch .gclear{position:absolute;right:8px;top:50%;transform:translateY(-50%);width:26px;height:26px;
+  border-radius:50%;background:var(--bg3);color:var(--ink2);font-size:16px;line-height:1;
+  display:flex;align-items:center;justify-content:center;flex:none}
+.gdrop{position:absolute;top:calc(100% + 8px);left:0;right:0;background:var(--bg1);border:1px solid var(--line2);
+  border-radius:var(--radius);box-shadow:var(--shadow);max-height:min(70dvh,480px);overflow:auto;z-index:100}
+.ghead{padding:11px 14px 4px;font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:.7px;color:var(--ink3)}
+.grow{display:flex;align-items:center;gap:10px;padding:9px 14px;width:100%;text-align:left}
+.grow:hover{background:rgba(255,255,255,.03)}
+.gmain{flex:1;min-width:0;display:flex;flex-direction:column}
+.gmain b{font-size:14px}
+.gtext{font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.gsub{font-size:12.5px;color:var(--ink3)}
+.gplay{width:32px;height:32px;border-radius:10px;background:var(--bg3);display:flex;align-items:center;
+  justify-content:center;color:var(--blue2);flex:none;font-size:13px}
+.gempty{padding:18px;text-align:center;color:var(--ink3);font-size:14px}
+.gmore{color:var(--blue2);font-weight:700;font-size:13.5px;justify-content:center;border-top:1px solid var(--line)}
+/* Mobile search row: expands below the app bar when the 🔍 button is tapped. */
+.appbar-search{position:sticky;top:var(--appbar-h);z-index:39;background:rgba(5,7,12,.92);
+  backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);padding:10px 12px;border-bottom:1px solid var(--line)}
+@media(min-width:768px){.appbar-search{display:none!important}}
+/* Desktop sidebar search: full width under the brand; hidden on the icon-only tablet sidebar. */
+.side-search{display:none;margin-top:16px}
+@media(min-width:1024px){.side-search{display:block}}

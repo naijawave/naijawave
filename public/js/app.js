@@ -13,6 +13,7 @@ const TABS=[
 const NAVALL=[
   ...TABS,
   {h:'#/explore', l:'Explore', svg:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>'},
+  {h:'#/videos', l:'Videos', svg:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>'},
   {h:'#/court', l:"People's Court", svg:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v18"/><path d="M5 7l7-4 7 4"/><path d="M3 13l2-6 2 6a3.5 3.5 0 0 1-4 0z"/><path d="M17 13l2-6 2 6a3.5 3.5 0 0 1-4 0z"/><path d="M8 21h8"/></svg>'},
   {h:'#/versus', l:'Naija Versus', svg:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M8 3H4v18h4"/><path d="M16 3h4v18h-4"/><path d="M12 7v10"/></svg>'},
   {h:'#/buzz', l:'Street Buzz', svg:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13S3 17 3 10a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>'},
@@ -40,15 +41,15 @@ function buildChrome(){
   const me=auth.me, logged=auth.loggedIn();
   ['appbar','tabbar','sidebar'].forEach(id=>document.getElementById(id).classList.toggle('hidden',!logged));
   document.getElementById('rail').classList.toggle('hidden',!logged);
+  if(!logged) document.getElementById('appbarSearch').classList.add('hidden');
   if(!logged) return;
   // tabbar
   document.getElementById('tabbar').innerHTML=TABS.map(t=>`
     <a href="${t.h==='#/profile/me'?'#/profile/'+me.username:t.h}" data-k="${t.key||t.h.split('/').slice(0,2).join('/')}">
       ${t.svg}<span>${t.l}</span>${t.badge?`<span class="tbadge hidden" data-badge="${t.badge}"></span>`:''}
     </a>`).join('');
-  // sidebar
-  const items=[...NAVALL.slice(0,9), NAVALL[9], NAVALL[10]];
-  document.getElementById('sideNav').innerHTML=items.map(t=>`
+  // sidebar — every nav item (TABS are NOT touched; the mobile tab bar stays at 5)
+  document.getElementById('sideNav').innerHTML=[...NAVALL].map(t=>`
     <a href="${t.h}" data-k="${t.key||t.h}">${t.svg}<span class="lbl">${t.l}</span></a>`).join('')
     +(isAdmin?`<a href="#/admin" data-k="#/admin">${ADMINITEM.svg}<span class="lbl">Admin</span></a>`:'');
   document.getElementById('sideMe').innerHTML=`
@@ -113,6 +114,13 @@ function wireGlobal(){
   document.getElementById('scrim').onclick=()=>openDrawer(false);
   document.getElementById('drawerNav').addEventListener('click',e=>{ if(e.target.closest('a')) openDrawer(false); });
   document.getElementById('drawerLogout').onclick=()=>{ openDrawer(false); auth.logout(); };
+  // global search (header on mobile, sidebar on desktop)
+  import('./searchbar.js?v=2').then(m=>m.initGlobalSearch()).catch(()=>{});
+  document.getElementById('appbarSearchBtn').onclick=()=>{
+    const row=document.getElementById('appbarSearch');
+    row.classList.toggle('hidden');
+    if(!row.classList.contains('hidden')) row.querySelector('input').focus();
+  };
   // incoming calls + notifications via socket
   sock.on('notification', n=>{
     refreshBadges();

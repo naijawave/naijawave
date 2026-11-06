@@ -1,6 +1,10 @@
-/* Naija Wave — home: composer + For You / Following feeds. */
+/* Naija Wave — home: composer + For You / Following feeds.
+   Videos (TikTok / Instagram / YouTube, added by link on the Videos page)
+   are mixed into the For You feed — a video card after every 3 posts, and at
+   least one near the top when there are fresh videos. */
 import { api, auth } from '../api.js';
 import { postCard, skelPosts, emptyState, errCard, toast, av, esc, openModal } from '../ui.js';
+import { videoCard, bindVideoPlayers, unbindVideoPlayers } from './videos-shared.js';
 
 export async function render(view){
   view.innerHTML=`<div class="page" style="padding-top:0">
@@ -16,18 +20,58 @@ export async function render(view){
 
   const feed=view.querySelector('#feed'), more=view.querySelector('#more');
   let tab='foryou', page=1, hasMore=true, loading=false;
+  // Videos mixed into the For You feed (fetched in batches, consumed as
+  // pages load — videos are a bonus, so failures never break the feed).
+  let videoQueue=[], videoOffset=0, videoHasMore=true, videoLoading=false;
+
+  async function ensureVideos(){
+    if(videoQueue.length>=3 || !videoHasMore || videoLoading) return;
+    videoLoading=true;
+    try{
+      const d=await api.get(`/api/videos?limit=10&offset=${videoOffset}`);
+      videoQueue.push(...(d.items||[]));
+      videoOffset+=(d.items||[]).length;
+      videoHasMore=!!d.has_more;
+    }catch{ /* ignore — feed works without videos */ }
+    videoLoading=false;
+  }
+  function nextVideo(){ return videoQueue.shift()||null; }
 
   async function load(reset){
     if(loading||(!reset&&!hasMore)) return;
     loading=true;
-    if(reset){ page=1; hasMore=true; feed.innerHTML=skelPosts(4); more.classList.add('hidden'); }
+    if(reset){ page=1; hasMore=true; feed.innerHTML=skelPosts(4); more.classList.add('hidden'); videoQueue=[]; videoOffset=0; videoHasMore=true; }
     try{
       const d=await api.get(`/api/feed/${tab}?page=${page}&limit=20`);
       if(reset) feed.innerHTML='';
       if(!d.items.length && page===1){
         feed.innerHTML=emptyState('No waves yet','Follow people or be the first to post. The tide starts with you 🌊');
       }else{
-        d.items.forEach(p=>{ const t=document.createElement('div'); t.innerHTML=postCard(p); feed.appendChild(t.firstChild); });
+        // For You: mix video cards in with the posts.
+        if(tab==='foryou'){
+          await ensureVideos();
+          const items=[];
+          let postCount=0, videoInserted=false;
+          d.items.forEach(p=>{
+            items.push({type:'post', data:p});
+            postCount++;
+            if(postCount%3===0){ const v=nextVideo(); if(v){ items.push({type:'video', data:v}); videoInserted=true; } }
+          });
+          // At least one video near the top on the first page, if any are fresh.
+          if(page===1 && !videoInserted && videoQueue.length){
+            const v=nextVideo();
+            if(v) items.splice(Math.min(2, items.length), 0, {type:'video', data:v});
+          }
+          items.forEach(it=>{
+            const t=document.createElement('div');
+            t.innerHTML = it.type==='post' ? postCard(it.data) : videoCard(it.data, auth.me);
+            feed.appendChild(t.firstChild);
+          });
+          bindVideoPlayers(feed);
+          if(videoQueue.length<3 && videoHasMore) ensureVideos();
+        }else{
+          d.items.forEach(p=>{ const t=document.createElement('div'); t.innerHTML=postCard(p); feed.appendChild(t.firstChild); });
+        }
       }
       hasMore=!!d.has_more; more.classList.toggle('hidden',!hasMore);
       page++;
@@ -43,7 +87,7 @@ export async function render(view){
   more.onclick=()=>load(false);
   document.addEventListener('nw:posted', onPosted);
   load(true);
-  return ()=>document.removeEventListener('nw:posted', onPosted);
+  return ()=>{ document.removeEventListener('nw:posted', onPosted); unbindVideoPlayers(); };
 
   function onPosted(e){
     if(tab==='foryou'){ const t=document.createElement('div'); t.innerHTML=postCard(e.detail); feed.prepend(t.firstChild); }

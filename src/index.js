@@ -46,6 +46,7 @@ app.use('/api/posts', postsRouter);
 app.use('/api', postsRouter.feedRouter);      // /api/feed/foryou, /api/feed/following, /api/explore
 app.use('/api/comments', postsRouter.commentsRouter); // /api/comments/:id
 app.get('/api/search', authOptional, postsRouter.searchAll);
+app.get('/api/search/web', postsRouter.searchWeb);
 app.get('/api/hashtags/trending', postsRouter.trendingTags);
 app.get('/api/hashtags/:tag', authOptional, postsRouter.hashtagFeed);
 app.use('/api/uploads', require('./routes/uploads'));
@@ -60,6 +61,8 @@ app.use('/api/verification', require('./routes/verification'));
 app.use('/api/admin', require('./routes/admin'));
 app.use('/api/calls', require('./routes/calls'));
 app.use('/api/push', require('./routes/push'));
+app.use('/api/videos', require('./routes/videos'));
+app.use('/api/tiktok', require('./routes/videos')); // alias — old links keep working
 
 // public announcements feed
 app.get('/api/announcements', authOptional, async (req, res) => {

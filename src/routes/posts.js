@@ -283,10 +283,97 @@ async function searchAll(req, res) {
       out.hashtags = await db.all(`SELECT h.tag, COUNT(*)::int c FROM hashtags h JOIN post_hashtags ph ON ph.hashtag_id = h.id
         WHERE h.tag ILIKE $1 ESCAPE '\\' GROUP BY h.id ORDER BY c DESC LIMIT 10`, '%' + escLike(tag) + '%');
     }
+    if (type === 'all' || type === 'videos') {
+      const { serializeVideo } = require('./videos');
+      const rows = await db.all(`SELECT t.id, t.platform, t.video_id, t.url, t.title, t.user_id, t.created_at,
+          u.username, u.display_name, u.avatar_url, u.verification,
+          u.bio, u.location, u.website, u.is_founder, u.role, u.status, u.created_at AS user_created_at
+        FROM videos t JOIN users u ON u.id = t.user_id
+        WHERE t.deleted_at IS NULL AND (t.title ILIKE $1 ESCAPE '\\' OR t.url ILIKE $2 ESCAPE '\\')
+        ORDER BY t.id DESC LIMIT 10`, like, like);
+      out.videos = rows.map(serializeVideo);
+    }
   }
   res.json(out);
 }
 router.get('/search/all', authOptional, searchAll);
+
+// ---------- WEB SEARCH (results from outside Naija Wave) ----------
+// No API keys: Wikipedia search API + DuckDuckGo instant answers.
+// Either source failing must NEVER fail the endpoint — worst case {results:[]}.
+const WEB_UA = 'NaijaWave/1.0 (https://naijawave.onrender.com; web search)';
+function stripHtml(s) {
+  return String(s || '').replace(/<[^>]*>/g, '').replace(/&quot;/g, '"').replace(/&#0?39;|&apos;/g, "'")
+    .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').trim();
+}
+async function fetchJson(url) {
+  try {
+    const r = await fetch(url, {
+      headers: { 'User-Agent': WEB_UA, Accept: 'application/json' },
+      signal: AbortSignal.timeout(4000),
+    });
+    if (!r.ok) return null;
+    return await r.json();
+  } catch { return null; }
+}
+function titleFromUrl(url) {
+  try {
+    const seg = decodeURIComponent(new URL(url).pathname.split('/').filter(Boolean).pop() || '');
+    return seg.replace(/_/g, ' ').trim();
+  } catch { return ''; }
+}
+async function searchWeb(req, res) {
+  const q = String(req.query.q || '').trim();
+  if (q.length < 2) return res.json({ results: [] });
+  const out = [];
+  const push = (r) => {
+    if (!r || !r.url || !r.title) return;
+    if (out.some(x => x.url === r.url)) return;
+    if (out.length >= 6) return;
+    out.push({ title: String(r.title).slice(0, 120), snippet: stripHtml(r.snippet || '').slice(0, 200), url: r.url, source: r.source || 'Web' });
+  };
+  // DuckDuckGo instant answer first — often a direct answer.
+  // Capped at 3 (abstract + 2 topics) so Wikipedia results also get room.
+  const ddg = await fetchJson('https://api.duckduckgo.com/?q=' + encodeURIComponent(q) + '&format=json&no_html=1');
+  if (ddg) {
+    if (ddg.AbstractText && ddg.AbstractURL) {
+      push({ title: stripHtml(ddg.Heading) || titleFromUrl(ddg.AbstractURL) || q, snippet: ddg.AbstractText, url: ddg.AbstractURL, source: 'DuckDuckGo' });
+    }
+    const topics = Array.isArray(ddg.RelatedTopics) ? ddg.RelatedTopics : [];
+    let ddgCount = out.length;
+    for (const t of topics) {
+      if (ddgCount >= 3) break;
+      if (!t) continue;
+      // Some entries are groups with a nested Topics array.
+      const items = Array.isArray(t.Topics) ? t.Topics : [t];
+      for (const it of items) {
+        if (ddgCount >= 3) break;
+        if (it && it.Text && it.FirstURL) {
+          // Topic text is "Name description..." with no separator, so take
+          // the title from the URL slug and strip it from the snippet.
+          const title = titleFromUrl(it.FirstURL) || stripHtml(it.Text).slice(0, 60);
+          let snip = stripHtml(it.Text);
+          if (title && snip.toLowerCase().startsWith(title.toLowerCase())) snip = snip.slice(title.length).trim();
+          push({ title, snippet: snip, url: it.FirstURL, source: 'DuckDuckGo' });
+          ddgCount = out.length;
+        }
+      }
+    }
+  }
+  // Wikipedia search.
+  const wiki = await fetchJson('https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch='
+    + encodeURIComponent(q) + '&format=json&srlimit=5');
+  const hits = (wiki && wiki.query && Array.isArray(wiki.query.search)) ? wiki.query.search : [];
+  for (const h of hits) {
+    push({
+      title: h.title,
+      snippet: h.snippet,
+      url: 'https://en.wikipedia.org/wiki/' + encodeURIComponent(String(h.title).replace(/ /g, '_')),
+      source: 'Wikipedia',
+    });
+  }
+  res.json({ results: out.slice(0, 6) });
+}
 
 // ---------- TRENDING HASHTAGS (real activity, last 48h) ----------
 async function trendingTags(req, res) {
@@ -331,6 +418,7 @@ router.get('/bookmarks/mine', authRequired, async (req, res) => {
 
 module.exports = router;
 module.exports.searchAll = searchAll;
+module.exports.searchWeb = searchWeb;
 module.exports.trendingTags = trendingTags;
 module.exports.hashtagFeed = hashtagFeed;
 module.exports.feedRouter = feedRouter;

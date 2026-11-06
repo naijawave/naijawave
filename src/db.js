@@ -385,6 +385,47 @@ CREATE TABLE IF NOT EXISTS push_subscriptions (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_push_user ON push_subscriptions(user_id);
+
+-- TikTok Videos: videos added by LINK only (embedded player, no upload).
+-- video_id is the numeric TikTok video ID and url is the canonical full URL.
+CREATE TABLE IF NOT EXISTS tiktok_videos (
+  id SERIAL PRIMARY KEY,
+  video_id TEXT NOT NULL,
+  url TEXT NOT NULL,
+  title TEXT DEFAULT '',
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  deleted_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_tiktok_videos_video ON tiktok_videos(video_id);
+CREATE INDEX IF NOT EXISTS idx_tiktok_videos_created ON tiktok_videos(created_at DESC);
+
+-- Videos (all platforms): videos added by LINK only (embedded player, no upload).
+-- platform is 'tiktok' | 'instagram' | 'youtube' and video_id is the platform's
+-- video ID (TikTok numeric ID, YouTube 11-char ID, Instagram shortcode).
+CREATE TABLE IF NOT EXISTS videos (
+  id SERIAL PRIMARY KEY,
+  platform TEXT NOT NULL,
+  video_id TEXT NOT NULL,
+  url TEXT NOT NULL,
+  title TEXT DEFAULT '',
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  deleted_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_videos_platform_video ON videos(platform, video_id);
+CREATE INDEX IF NOT EXISTS idx_videos_created ON videos(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_videos_platform ON videos(platform);
+
+-- One-time migration: move rows from the old TikTok-only table into videos.
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'tiktok_videos') THEN
+    INSERT INTO videos (platform, video_id, url, title, user_id, created_at, deleted_at)
+    SELECT 'tiktok', video_id, url, title, user_id, created_at, deleted_at FROM tiktok_videos
+    WHERE NOT EXISTS (SELECT 1 FROM videos v WHERE v.platform = 'tiktok' AND v.video_id = tiktok_videos.video_id);
+  END IF;
+END $$;
 `;
 
 // Split SQL into statements, respecting $$ dollar-quoted blocks (DO ... END).
