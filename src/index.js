@@ -18,7 +18,10 @@ const { publicUser } = require('./utils/helpers');
 
 const app = express();
 app.set('trust proxy', 1);
-app.use(helmet({ contentSecurityPolicy: false, crossOriginEmbedderPolicy: false }));
+app.use(helmet({ contentSecurityPolicy: false, crossOriginEmbedderPolicy: false, referrerPolicy: { policy: 'strict-origin-when-cross-origin' } }));
+// NOTE: referrerPolicy must NOT be 'no-referrer' (Helmet's default).
+// YouTube Error 153 ("Video player configuration error") is YouTube refusing
+// an embed with no Referer header — see public/js/views/videos-shared.js.
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json({ limit: '2mb' }));
 app.use('/api', generalApi);

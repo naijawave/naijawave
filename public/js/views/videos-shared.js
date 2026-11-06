@@ -59,10 +59,10 @@ function ensureObserver() {
   if (io) return io;
   io = new IntersectionObserver((entries) => {
     entries.forEach((en) => {
-      if (en.isIntersecting && en.intersectionRatio >= 0.3) activate(en.target);
+      if (en.isIntersecting && en.intersectionRatio >= 0.1) activate(en.target);
       else if (!en.isIntersecting) deactivate(en.target);
     });
-  }, { threshold: [0, 0.3, 0.6] });
+  }, { threshold: [0, 0.1, 0.5] });
   return io;
 }
 
@@ -71,9 +71,30 @@ export function bindVideoPlayers(root) {
   (root || document).querySelectorAll('.video-player:not([data-bound])').forEach((el) => {
     el.dataset.bound = '1';
     obs.observe(el);
+    // Safety net: if the player is already in view (e.g. the observer's
+    // first callback was missed on this phone), start it right away.
+    const r = el.getBoundingClientRect();
+    const vh = window.innerHeight || document.documentElement.clientHeight || 0;
+    const vis = Math.min(r.bottom, vh) - Math.max(r.top, 0);
+    if (r.height > 0 && vis > 0 && vis / r.height >= 0.1) activate(el);
   });
   initMuteToggle();
+  initTapToPlay();
   initVisibilityStop();
+}
+
+/* Tap the big play placeholder to start a video — the manual fallback if
+   scroll autoplay ever misses a card. */
+let tapWired = false;
+function initTapToPlay() {
+  if (tapWired) return;
+  tapWired = true;
+  document.addEventListener('click', (e) => {
+    const ph = e.target.closest('.video-ph');
+    if (!ph) return;
+    const player = ph.closest('.video-player');
+    if (player) activate(player);
+  });
 }
 
 export function unbindVideoPlayers() {
@@ -90,7 +111,11 @@ function activate(el) {
   if (!frame) {
     frame = document.createElement('iframe');
     frame.setAttribute('frameborder', '0');
-    frame.setAttribute('allow', 'accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture');
+    // YouTube Error 153 ("Video player configuration error") fires when the
+    // embed request carries no Referer header. The iframe-level policy makes
+    // sure YouTube/TikTok always get one, even if the page header changes.
+    frame.setAttribute('referrerpolicy', 'strict-origin-when-cross-origin');
+    frame.setAttribute('allow', 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share');
     frame.setAttribute('allowfullscreen', '');
     frame.title = platform === 'youtube' ? 'YouTube video' : 'TikTok video';
     el.appendChild(frame);

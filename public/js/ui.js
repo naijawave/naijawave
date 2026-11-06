@@ -49,7 +49,7 @@ export function linkify(text){
     .replace(/(^|\s)@([a-z0-9_.]+)/g,'$1<a href="#/profile/$2">@$2</a>');
   tiktoks.forEach((id, i) => {
     html = html.split('\u0000TIKTOK' + i + '\u0000').join(
-      '<span class="tiktok-embed-wrap"><iframe src="https://www.tiktok.com/player/v1/' + id + '" title="TikTok video" frameborder="0" allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture" allowfullscreen loading="lazy"></iframe></span>');
+      '<span class="tiktok-embed-wrap"><iframe src="https://www.tiktok.com/player/v1/' + id + '" title="TikTok video" frameborder="0" referrerpolicy="strict-origin-when-cross-origin" allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture" allowfullscreen loading="lazy"></iframe></span>');
   });
   return html;
 }
